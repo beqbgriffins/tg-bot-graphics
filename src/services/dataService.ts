@@ -229,7 +229,7 @@ class DataService {
         Object.entries(prefsObj).forEach(([userIdStr, prefs]) => {
           const userId = parseInt(userIdStr, 10);
           // Migrate any 'combined' views to 'individual'
-          if (prefs.defaultView === 'combined') {
+          if ((prefs.defaultView as any) === 'combined') {
             prefs.defaultView = 'individual';
           }
           this.userPreferences.set(userId, prefs);
@@ -261,7 +261,7 @@ class DataService {
     } else {
       // Migrate existing users with 'combined' view to 'individual'
       const prefs = this.userPreferences.get(userId)!;
-      if (prefs.defaultView === 'combined') {
+      if ((prefs.defaultView as any) === 'combined') {
         prefs.defaultView = 'individual';
       }
     }
