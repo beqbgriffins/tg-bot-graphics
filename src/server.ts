@@ -61,6 +61,10 @@ class Server {
     
     // Route for getting all metrics for a user
     this.app.get('/api/:token/metrics', this.handleGetMetrics.bind(this));
+    
+    // Routes for deleting data
+    this.app.delete('/api/:token/data/all', this.handleDeleteAllData.bind(this));
+    this.app.delete('/api/:token/data/:key/:timestamp', this.handleDeleteDataPoint.bind(this));
   }
   
   /**
@@ -89,6 +93,9 @@ class Server {
    */
   private saveTokens(): void {
     try {
+      // Keep only the most recent 3 tokens per user
+      this.limitTokenStorage();
+      
       // Convert Map to Object for serialization
       const tokensObj: Record<string, string> = {};
       this.userTokens.forEach((token, userId) => {
@@ -105,6 +112,46 @@ class Server {
     } catch (error) {
       console.error('Error saving tokens to disk:', error);
     }
+  }
+  
+  /**
+   * Limit token storage to keep only the last 3 tokens
+   */
+  private limitTokenStorage(): void {
+    // Group user IDs
+    const userCounts = new Map<number, number>();
+    
+    // Count tokens per user
+    this.userTokens.forEach((_, userId) => {
+      userCounts.set(userId, (userCounts.get(userId) || 0) + 1);
+    });
+    
+    // Process users with more than 3 tokens
+    userCounts.forEach((count, userId) => {
+      if (count <= 3) {
+        return; // Skip users with 3 or fewer tokens
+      }
+      
+      // Get all tokens for this user
+      const userTokens = new Map<string, number>();
+      this.userTokens.forEach((token, uid) => {
+        if (uid === userId) {
+          userTokens.set(token, uid);
+        }
+      });
+      
+      // Sort tokens (we'll remove oldest ones, which are likely first in insertion order)
+      const tokens = Array.from(userTokens.keys());
+      const tokensToRemove = tokens.slice(0, count - 3);
+      
+      // Remove excess tokens
+      tokensToRemove.forEach(token => {
+        const uid = userTokens.get(token);
+        if (uid !== undefined) {
+          this.userTokens.delete(uid);
+        }
+      });
+    });
   }
   
   /**
@@ -709,6 +756,79 @@ class Server {
               border-radius: 4px;
               text-align: center;
             }
+            .delete-btn-sm {
+              background-color: #f44336;
+              color: white;
+              border: none;
+              border-radius: 4px;
+              padding: 4px 8px;
+              cursor: pointer;
+              font-size: 12px;
+            }
+            .delete-btn-sm:hover {
+              background-color: #d32f2f;
+            }
+            .actions-bar {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              margin-bottom: 20px;
+              padding: 15px;
+              background-color: #f5f5f5;
+              border-radius: 8px;
+              box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            }
+            .confirm-dialog {
+              position: fixed;
+              top: 0;
+              left: 0;
+              right: 0;
+              bottom: 0;
+              background-color: rgba(0, 0, 0, 0.5);
+              display: flex;
+              justify-content: center;
+              align-items: center;
+              z-index: 1000;
+            }
+            .confirm-dialog-content {
+              background-color: white;
+              padding: 20px;
+              border-radius: 8px;
+              max-width: 400px;
+              width: 90%;
+              box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+            }
+            .confirm-dialog-title {
+              font-size: 18px;
+              font-weight: bold;
+              margin-bottom: 10px;
+              color: #333;
+            }
+            .confirm-dialog-message {
+              margin-bottom: 20px;
+              color: #555;
+              font-size: 14px;
+            }
+            .confirm-dialog-buttons {
+              display: flex;
+              justify-content: flex-end;
+              gap: 10px;
+            }
+            .confirm-btn {
+              padding: 8px 15px;
+              border-radius: 4px;
+              border: none;
+              cursor: pointer;
+              font-size: 14px;
+            }
+            .confirm-btn-cancel {
+              background-color: #ccc;
+              color: #333;
+            }
+            .confirm-btn-confirm {
+              background-color: #f44336;
+              color: white;
+            }
             .legend {
               display: flex;
               flex-wrap: wrap;
@@ -956,6 +1076,11 @@ class Server {
           
           <!-- Data Table Tab -->
           <div class="tab-content" id="data-tab">
+            <div class="actions-bar">
+              <h3>Data Management</h3>
+              <button id="delete-all-data" class="button danger" onclick="confirmDeleteAllData()">Delete All Data</button>
+            </div>
+            
             <div class="data-table" id="data-table">
               <table>
                 <thead>
@@ -964,12 +1089,25 @@ class Server {
                     <th>Time</th>
                     <th>Metric</th>
                     <th>Value</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody id="data-table-body">
                   <!-- Data will be loaded here -->
                 </tbody>
               </table>
+            </div>
+            
+            <!-- Confirmation Dialog -->
+            <div id="confirm-dialog" class="confirm-dialog" style="display: none;">
+              <div class="confirm-dialog-content">
+                <div class="confirm-dialog-title" id="confirm-dialog-title">Confirm Delete</div>
+                <div class="confirm-dialog-message" id="confirm-dialog-message">Are you sure you want to delete this item?</div>
+                <div class="confirm-dialog-buttons">
+                  <button class="confirm-btn confirm-btn-cancel" onclick="closeConfirmDialog()">Cancel</button>
+                  <button class="confirm-btn confirm-btn-confirm" id="confirm-dialog-button">Delete</button>
+                </div>
+              </div>
             </div>
           </div>
           
@@ -1079,7 +1217,7 @@ class Server {
                 
                 const headerRow = document.createElement('tr');
                 const headerCell = document.createElement('td');
-                headerCell.colSpan = 4;
+                headerCell.colSpan = 5; // Updated to include action column
                 headerCell.className = 'date-header';
                 headerCell.textContent = formattedDate;
                 headerRow.appendChild(headerCell);
@@ -1101,10 +1239,20 @@ class Server {
                   const valueCell = document.createElement('td');
                   valueCell.textContent = point.value;
                   
+                  const actionCell = document.createElement('td');
+                  const deleteButton = document.createElement('button');
+                  deleteButton.textContent = 'Delete';
+                  deleteButton.className = 'delete-btn-sm';
+                  deleteButton.onclick = function() {
+                    confirmDeleteDataPoint(point.key, point.timestamp);
+                  };
+                  actionCell.appendChild(deleteButton);
+                  
                   row.appendChild(dateCell);
                   row.appendChild(timeCell);
                   row.appendChild(metricCell);
                   row.appendChild(valueCell);
+                  row.appendChild(actionCell);
                   
                   tableBody.appendChild(row);
                 });
@@ -1261,10 +1409,140 @@ class Server {
             
             // Auto-refresh every 5 minutes
             setInterval(refreshChart, 300000);
+            
+            // Data deletion functions
+            function confirmDeleteDataPoint(key, timestamp) {
+              const dialog = document.getElementById('confirm-dialog');
+              const title = document.getElementById('confirm-dialog-title');
+              const message = document.getElementById('confirm-dialog-message');
+              const confirmButton = document.getElementById('confirm-dialog-button');
+              
+              title.textContent = 'Delete Data Point';
+              message.textContent = \`Are you sure you want to delete the data point for "\${key}"?\`;
+              
+              confirmButton.onclick = function() {
+                deleteDataPoint(key, timestamp);
+                closeConfirmDialog();
+              };
+              
+              dialog.style.display = 'flex';
+            }
+            
+            function confirmDeleteAllData() {
+              const dialog = document.getElementById('confirm-dialog');
+              const title = document.getElementById('confirm-dialog-title');
+              const message = document.getElementById('confirm-dialog-message');
+              const confirmButton = document.getElementById('confirm-dialog-button');
+              
+              title.textContent = 'Delete All Data';
+              message.textContent = 'Are you sure you want to delete ALL your data? This action cannot be undone!';
+              
+              confirmButton.onclick = function() {
+                deleteAllData();
+                closeConfirmDialog();
+              };
+              
+              dialog.style.display = 'flex';
+            }
+            
+            function closeConfirmDialog() {
+              const dialog = document.getElementById('confirm-dialog');
+              dialog.style.display = 'none';
+            }
+            
+            function deleteDataPoint(key, timestamp) {
+              fetch(\`/api/\${userToken}/data/\${encodeURIComponent(key)}/\${encodeURIComponent(timestamp)}\`, {
+                method: 'DELETE'
+              })
+              .then(response => response.json())
+              .then(data => {
+                if (data.success) {
+                  // Refresh the data
+                  refreshChart();
+                } else {
+                  alert('Error deleting data point: ' + (data.error || 'Unknown error'));
+                }
+              })
+              .catch(error => {
+                console.error('Error deleting data point:', error);
+                alert('Error deleting data point. Please try again.');
+              });
+            }
+            
+            function deleteAllData() {
+              fetch(\`/api/\${userToken}/data/all\`, {
+                method: 'DELETE'
+              })
+              .then(response => response.json())
+              .then(data => {
+                if (data.success) {
+                  // Refresh the data
+                  refreshChart();
+                } else {
+                  alert('Error deleting all data: ' + (data.error || 'Unknown error'));
+                }
+              })
+              .catch(error => {
+                console.error('Error deleting all data:', error);
+                alert('Error deleting all data. Please try again.');
+              });
+            }
           </script>
         </body>
       </html>
     `);
+  }
+  
+  /**
+   * Handle request to delete all data for a user
+   */
+  private handleDeleteAllData(req: Request, res: Response): void {
+    try {
+      const token = req.params.token;
+      const userId = this.getUserIdFromToken(token);
+      
+      if (userId === undefined) {
+        res.status(403).json({ error: 'Invalid token' });
+        return;
+      }
+      
+      // Delete all data
+      dataService.clearUserData(userId);
+      
+      res.json({ success: true, message: 'All data deleted successfully' });
+    } catch (error) {
+      console.error('Error deleting all data:', error);
+      res.status(500).json({ error: 'Error deleting data' });
+    }
+  }
+  
+  /**
+   * Handle request to delete a specific data point
+   */
+  private handleDeleteDataPoint(req: Request, res: Response): void {
+    try {
+      const token = req.params.token;
+      const key = req.params.key;
+      const timestamp = req.params.timestamp;
+      const userId = this.getUserIdFromToken(token);
+      
+      if (userId === undefined) {
+        res.status(403).json({ error: 'Invalid token' });
+        return;
+      }
+      
+      // Delete the data point
+      const success = dataService.deleteDataPoint(userId, key, timestamp);
+      
+      if (success) {
+        res.json({ success: true, message: 'Data point deleted successfully' });
+      } else {
+        res.status(404).json({ error: 'Data point not found' });
+      }
+    } catch (error) {
+      console.error('Error deleting data point:', error);
+      res.status(500).json({ error: 'Error deleting data point' });
+    }
   }
   
   /**
