@@ -8,6 +8,7 @@ class Server {
   private port: number;
   private host: string;
   private userTokens: Map<number, string> = new Map(); // Map user IDs to secure tokens
+  // We'll keep this for backward compatibility, but migrate to dataService storage
   private userGroups: Map<number, Map<string, string[]>> = new Map(); // Store user-defined chart groups
   
   constructor(port: number, host: string) {

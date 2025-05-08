@@ -1,9 +1,28 @@
 import { ChartGroup, DataPoint, DataSet, ParsedData, UserDataStore, UserPreferences } from '../types';
 import crypto from 'crypto';
 
+import fs from 'fs';
+import path from 'path';
+
 class DataService {
   private userDataStore: UserDataStore = {};
   private userPreferences: Map<number, UserPreferences> = new Map();
+  private persistenceDir: string = path.join(process.cwd(), 'data');
+  private dataFilePath: string;
+  private preferencesFilePath: string;
+  
+  constructor() {
+    // Ensure data directory exists
+    if (!fs.existsSync(this.persistenceDir)) {
+      fs.mkdirSync(this.persistenceDir, { recursive: true });
+    }
+    
+    this.dataFilePath = path.join(this.persistenceDir, 'user_data.json');
+    this.preferencesFilePath = path.join(this.persistenceDir, 'user_preferences.json');
+    
+    // Load saved data if available
+    this.loadData();
+  }
   
   /**
    * Adds data points to the store for a specific user
@@ -43,6 +62,9 @@ class DataService {
     
     // Update user's favorite metrics
     this.updateFavoriteMetrics(userId, data.map(item => item.key));
+    
+    // Save changes to disk
+    this.saveData();
   }
   
   /**
@@ -122,6 +144,7 @@ class DataService {
   public clearUserData(userId: number): void {
     if (this.userDataStore[userId]) {
       delete this.userDataStore[userId];
+      this.saveData();
     }
   }
   
@@ -138,6 +161,89 @@ class DataService {
    */
   public clearAllData(): void {
     this.userDataStore = {};
+    this.saveData();
+  }
+  
+  /**
+   * Saves all user data and preferences to disk
+   */
+  public saveData(): void {
+    try {
+      // Save user data store
+      fs.writeFileSync(
+        this.dataFilePath, 
+        JSON.stringify(this.userDataStore, (key, value) => {
+          // Handle Date objects during serialization
+          if (value instanceof Date) {
+            return { __type: 'Date', value: value.toISOString() };
+          }
+          return value;
+        }),
+        'utf8'
+      );
+      
+      // Convert Map to Object for serialization
+      const preferencesObj: Record<string, UserPreferences> = {};
+      this.userPreferences.forEach((prefs, userId) => {
+        preferencesObj[userId.toString()] = prefs;
+      });
+      
+      // Save user preferences
+      fs.writeFileSync(
+        this.preferencesFilePath,
+        JSON.stringify(preferencesObj),
+        'utf8'
+      );
+      
+      console.log('Data saved to disk successfully');
+    } catch (error) {
+      console.error('Error saving data to disk:', error);
+    }
+  }
+  
+  /**
+   * Loads user data and preferences from disk
+   */
+  private loadData(): void {
+    try {
+      // Load user data store if file exists
+      if (fs.existsSync(this.dataFilePath)) {
+        const dataJson = fs.readFileSync(this.dataFilePath, 'utf8');
+        this.userDataStore = JSON.parse(dataJson, (key, value) => {
+          // Handle Date objects during deserialization
+          if (value && typeof value === 'object' && value.__type === 'Date') {
+            return new Date(value.value);
+          }
+          return value;
+        });
+        
+        console.log('Loaded user data from disk');
+      }
+      
+      // Load user preferences if file exists
+      if (fs.existsSync(this.preferencesFilePath)) {
+        const prefsJson = fs.readFileSync(this.preferencesFilePath, 'utf8');
+        const prefsObj: Record<string, UserPreferences> = JSON.parse(prefsJson);
+        
+        // Convert Object back to Map
+        Object.entries(prefsObj).forEach(([userIdStr, prefs]) => {
+          const userId = parseInt(userIdStr, 10);
+          // Migrate any 'combined' views to 'individual'
+          if (prefs.defaultView === 'combined') {
+            prefs.defaultView = 'individual';
+          }
+          this.userPreferences.set(userId, prefs);
+        });
+        
+        console.log('Loaded user preferences from disk');
+      }
+    } catch (error) {
+      console.error('Error loading data from disk:', error);
+      
+      // Reset to empty objects in case of error
+      this.userDataStore = {};
+      this.userPreferences = new Map();
+    }
   }
   
   /**
@@ -146,11 +252,18 @@ class DataService {
    */
   public getUserPreferences(userId: number): UserPreferences {
     if (!this.userPreferences.has(userId)) {
+      // Initialize new user preferences
       this.userPreferences.set(userId, {
         chartGroups: [],
         defaultView: 'individual',
         favoriteMetrics: []
       });
+    } else {
+      // Migrate existing users with 'combined' view to 'individual'
+      const prefs = this.userPreferences.get(userId)!;
+      if (prefs.defaultView === 'combined') {
+        prefs.defaultView = 'individual';
+      }
     }
     
     return this.userPreferences.get(userId)!;
@@ -176,6 +289,9 @@ class DataService {
     
     // Add to user's preferences
     preferences.chartGroups.push(newGroup);
+    
+    // Save changes to disk
+    this.saveData();
     
     return newGroup;
   }
@@ -207,6 +323,10 @@ class DataService {
     };
     
     preferences.chartGroups[groupIndex] = updatedGroup;
+    
+    // Save changes to disk
+    this.saveData();
+    
     return updatedGroup;
   }
   
@@ -227,6 +347,10 @@ class DataService {
     
     // Remove the group
     preferences.chartGroups.splice(groupIndex, 1);
+    
+    // Save changes to disk
+    this.saveData();
+    
     return true;
   }
   
@@ -278,6 +402,9 @@ class DataService {
       .slice(0, 5);
     
     preferences.favoriteMetrics = sortedKeys;
+    
+    // No need to call saveData() here as this is only called from addData()
+    // which already calls saveData()
   }
 }
 
