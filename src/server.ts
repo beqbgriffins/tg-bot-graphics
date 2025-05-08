@@ -23,7 +23,7 @@ class Server {
     // Route for serving chart page with some basic styling
     this.app.get('/view', this.handleViewRequest.bind(this));
     
-    // Route for providing JSON data for debugging
+    // Route for providing JSON data
     this.app.get('/data', this.handleDataRequest.bind(this));
   }
   
@@ -36,7 +36,10 @@ class Server {
         return;
       }
       
-      const chartBuffer = await chartService.generateTimelineChart(data);
+      // Get filters from query parameters
+      const hiddenKeys = (req.query.hidden || '').toString().split(',').filter(Boolean);
+      
+      const chartBuffer = await chartService.generateTimelineChart(data, hiddenKeys);
       
       res.set('Content-Type', 'image/png');
       res.send(chartBuffer);
@@ -73,28 +76,14 @@ class Server {
   private handleViewRequest(req: Request, res: Response): void {
     const data = dataService.getAllData();
     
-    // Get unique dates for the data filter
-    const uniqueDates = new Set<string>();
+    // Get unique keys for the metric filter
     const allKeys = new Set<string>();
-    
     data.forEach(point => {
-      uniqueDates.add(point.timestamp.toISOString().split('T')[0]);
       allKeys.add(point.key);
     });
     
-    // Sort dates in reverse chronological order
-    const sortedDates = Array.from(uniqueDates).sort().reverse();
-    
-    // Create options for the date filter
-    const dateOptions = sortedDates.map(date => {
-      const [year, month, day] = date.split('-');
-      return `<option value="${date}">${day}.${month}.${year}</option>`;
-    }).join('');
-    
-    // Create options for the metric filter
-    const metricOptions = Array.from(allKeys).map(key => {
-      return `<option value="${key}">${key}</option>`;
-    }).join('');
+    // Sort keys alphabetically
+    const sortedKeys = Array.from(allKeys).sort();
     
     res.send(`
       <!DOCTYPE html>
@@ -130,38 +119,11 @@ class Server {
               margin: 20px 0;
               width: 90%;
               max-width: 1100px;
+              position: relative;
             }
             img {
               max-width: 100%;
               height: auto;
-            }
-            .controls {
-              display: flex;
-              flex-wrap: wrap;
-              gap: 15px;
-              margin-bottom: 20px;
-              width: 100%;
-              justify-content: center;
-            }
-            .control-group {
-              display: flex;
-              flex-direction: column;
-              min-width: 200px;
-            }
-            label {
-              margin-bottom: 5px;
-              font-weight: bold;
-              color: #333;
-            }
-            select, button {
-              padding: 8px 12px;
-              border-radius: 4px;
-              border: 1px solid #ccc;
-              background-color: white;
-              font-size: 14px;
-            }
-            select {
-              min-width: 150px;
             }
             button {
               background-color: #4CAF50;
@@ -218,31 +180,68 @@ class Server {
               border-radius: 4px;
               text-align: center;
             }
+            .legend {
+              display: flex;
+              flex-wrap: wrap;
+              gap: 10px;
+              margin-bottom: 15px;
+              margin-top: 15px;
+            }
+            .legend-item {
+              display: flex;
+              align-items: center;
+              padding: 5px 10px;
+              border-radius: 4px;
+              cursor: pointer;
+              user-select: none;
+              transition: opacity 0.2s;
+            }
+            .legend-item.disabled {
+              opacity: 0.5;
+            }
+            .legend-color {
+              width: 20px;
+              height: 20px;
+              border-radius: 3px;
+              margin-right: 8px;
+            }
+            .legend-label {
+              font-size: 14px;
+            }
+            .controls-header {
+              width: 100%;
+              text-align: left;
+              font-weight: bold;
+              font-size: 16px;
+              margin-bottom: 5px;
+              color: #333;
+            }
+            .loading {
+              position: absolute;
+              top: 0;
+              left: 0;
+              right: 0;
+              bottom: 0;
+              background: rgba(255, 255, 255, 0.8);
+              display: flex;
+              justify-content: center;
+              align-items: center;
+              z-index: 10;
+              font-size: 18px;
+              font-weight: bold;
+            }
           </style>
         </head>
         <body>
           <h1>Data Timeline Visualization</h1>
-          <p class="subheader">Showing ${data.length} data points across ${uniqueDates.size} dates</p>
-          
-          <div class="controls">
-            <div class="control-group">
-              <label for="date-filter">Filter by Date:</label>
-              <select id="date-filter">
-                <option value="all">All Dates</option>
-                ${dateOptions}
-              </select>
-            </div>
-            
-            <div class="control-group">
-              <label for="metric-filter">Filter by Metric:</label>
-              <select id="metric-filter">
-                <option value="all">All Metrics</option>
-                ${metricOptions}
-              </select>
-            </div>
-          </div>
+          <p class="subheader">Showing ${data.length} data points for ${sortedKeys.length} metrics</p>
           
           <div class="chart-container">
+            <div class="controls-header">Toggle metrics:</div>
+            <div class="legend" id="legend">
+              <!-- Legend items will be inserted here by JavaScript -->
+            </div>
+            <div id="loading" class="loading" style="display: none;">Loading...</div>
             <img src="/chart" alt="Data Timeline Chart" id="chart-image">
           </div>
           
@@ -265,42 +264,139 @@ class Server {
           </div>
           
           <script>
+            // Color generation function
+            function generateColor(index) {
+              const hue = (index * 137) % 360; // Golden angle approximation
+              return \`hsl(\${hue}, 70%, 60%)\`;
+            }
+            
+            // Store hidden keys
+            let hiddenKeys = [];
+            let allData = [];
+            
             // Load data on page load
-            window.addEventListener('DOMContentLoaded', loadData);
+            window.addEventListener('DOMContentLoaded', initializePage);
+            
+            function initializePage() {
+              loadData().then(() => {
+                createLegend();
+                populateTable(allData);
+              });
+            }
             
             function loadData() {
-              fetch('/data')
+              return fetch('/data')
                 .then(response => response.json())
                 .then(data => {
-                  populateTable(data);
+                  allData = data;
+                  return data;
                 })
                 .catch(error => {
                   console.error('Error loading data:', error);
                 });
             }
             
+            function createLegend() {
+              const legendContainer = document.getElementById('legend');
+              legendContainer.innerHTML = '';
+              
+              // Get unique keys
+              const uniqueKeys = [...new Set(allData.map(item => item.key))].sort();
+              
+              // Create legend items
+              uniqueKeys.forEach((key, index) => {
+                const color = generateColor(index);
+                
+                const legendItem = document.createElement('div');
+                legendItem.className = 'legend-item';
+                legendItem.dataset.key = key;
+                if (hiddenKeys.includes(key)) {
+                  legendItem.classList.add('disabled');
+                }
+                
+                const colorBox = document.createElement('div');
+                colorBox.className = 'legend-color';
+                colorBox.style.backgroundColor = color;
+                
+                const label = document.createElement('div');
+                label.className = 'legend-label';
+                label.textContent = key;
+                
+                legendItem.appendChild(colorBox);
+                legendItem.appendChild(label);
+                
+                // Add click event
+                legendItem.addEventListener('click', () => {
+                  toggleKey(key, legendItem);
+                });
+                
+                legendContainer.appendChild(legendItem);
+              });
+            }
+            
+            function toggleKey(key, element) {
+              const index = hiddenKeys.indexOf(key);
+              if (index === -1) {
+                // Hide this key
+                hiddenKeys.push(key);
+                element.classList.add('disabled');
+              } else {
+                // Show this key
+                hiddenKeys.splice(index, 1);
+                element.classList.remove('disabled');
+              }
+              
+              // Update chart
+              updateChart();
+              
+              // Update table
+              populateTable(allData);
+            }
+            
+            function updateChart() {
+              const img = document.getElementById('chart-image');
+              const loading = document.getElementById('loading');
+              
+              // Show loading indicator
+              loading.style.display = 'flex';
+              
+              // Generate query params
+              const params = hiddenKeys.length > 0 ? \`?hidden=\${hiddenKeys.join(',')}\` : '';
+              
+              // Create a new image element
+              const newImage = new Image();
+              newImage.onload = function() {
+                // When new image is loaded, replace the old one and hide loading
+                img.src = newImage.src;
+                loading.style.display = 'none';
+              };
+              newImage.onerror = function() {
+                // Hide loading on error
+                loading.style.display = 'none';
+                alert('Error loading chart');
+              };
+              
+              // Start loading the new image
+              newImage.src = \`/chart\${params}&t=\${new Date().getTime()}\`;
+            }
+            
             function populateTable(data) {
               const tableBody = document.getElementById('data-table-body');
               tableBody.innerHTML = '';
               
-              // Get selected filters
-              const dateFilter = document.getElementById('date-filter').value;
-              const metricFilter = document.getElementById('metric-filter').value;
+              // Filter data by visible keys
+              const filteredData = data.filter(point => !hiddenKeys.includes(point.key));
               
               // Group data by date
               const dataByDate = {};
               
-              data.forEach(point => {
+              filteredData.forEach(point => {
                 const dateStr = point.timestamp.split('T')[0];
-                const matchesDateFilter = dateFilter === 'all' || dateFilter === dateStr;
-                const matchesMetricFilter = metricFilter === 'all' || metricFilter === point.key;
                 
-                if (matchesDateFilter && matchesMetricFilter) {
-                  if (!dataByDate[dateStr]) {
-                    dataByDate[dateStr] = [];
-                  }
-                  dataByDate[dateStr].push(point);
+                if (!dataByDate[dateStr]) {
+                  dataByDate[dateStr] = [];
                 }
+                dataByDate[dateStr].push(point);
               });
               
               // Sort dates in reverse chronological order
@@ -360,24 +456,24 @@ class Server {
             }
             
             function refreshChart() {
-              const img = document.getElementById('chart-image');
-              img.src = '/chart?' + new Date().getTime();
+              // Show loading indicator
+              document.getElementById('loading').style.display = 'flex';
               
-              // Also refresh the data table
-              loadData();
+              // Reload data from server
+              loadData().then(() => {
+                // Update legend
+                createLegend();
+                
+                // Update chart
+                updateChart();
+                
+                // Update table
+                populateTable(allData);
+              });
             }
             
-            // Handle filter changes
-            document.getElementById('date-filter').addEventListener('change', function() {
-              loadData();
-            });
-            
-            document.getElementById('metric-filter').addEventListener('change', function() {
-              loadData();
-            });
-            
-            // Auto-refresh every minute
-            setInterval(refreshChart, 60000);
+            // Auto-refresh every 5 minutes
+            setInterval(refreshChart, 300000);
           </script>
         </body>
       </html>

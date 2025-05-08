@@ -31,16 +31,27 @@ class ChartService {
   /**
    * Generate a timeline chart image as a Buffer
    * @param data The data points to visualize
+   * @param hiddenKeys Optional array of keys to hide from the chart
    * @returns Buffer containing the chart image
    */
-  public async generateTimelineChart(data: DataPoint[]): Promise<Buffer> {
+  public async generateTimelineChart(data: DataPoint[], hiddenKeys: string[] = []): Promise<Buffer> {
+    // Filter out hidden keys
+    const filteredData = hiddenKeys.length > 0 
+      ? data.filter(point => !hiddenKeys.includes(point.key))
+      : data;
+    
+    // If all data is filtered out, return an error message
+    if (filteredData.length === 0) {
+      return this.generateErrorChart("No visible data - all metrics are hidden");
+    }
+    
     // Group data by key
     const dataByKey: Record<string, { 
       values: number[],
       timestamps: Date[]
     }> = {};
     
-    data.forEach(point => {
+    filteredData.forEach(point => {
       if (!dataByKey[point.key]) {
         dataByKey[point.key] = {
           values: [],
@@ -53,7 +64,7 @@ class ChartService {
     });
     
     // Get unique timestamps sorted by time
-    const allTimestamps = [...new Set(data.map(p => p.timestamp.getTime()))]
+    const allTimestamps = [...new Set(filteredData.map(p => p.timestamp.getTime()))]
       .sort((a, b) => a - b)
       .map(t => new Date(t));
     
@@ -76,8 +87,14 @@ class ChartService {
       }
     });
     
+    // Get all keys (even hidden ones for consistent coloring)
+    const allKeys = [...new Set(data.map(point => point.key))].sort();
+    
     // Create datasets for Chart.js
-    const datasets = Object.keys(dataByKey).map((key, index) => {
+    const datasets = Object.keys(dataByKey).map(key => {
+      // Find the index based on the full set of keys for consistent coloring
+      const index = allKeys.indexOf(key);
+      
       // Generate a color based on the index
       const hue = (index * 137) % 360; // Golden angle approximation for good distribution
       const color = `hsl(${hue}, 70%, 60%)`;
@@ -159,6 +176,41 @@ class ChartService {
     
     // Convert to buffer
     return canvas.toBuffer('image/png');
+  }
+  
+  /**
+   * Generate an error chart with a message
+   * @param message Error message to display
+   * @returns Buffer containing the error chart image
+   */
+  private generateErrorChart(message: string): Promise<Buffer> {
+    const width = 800;
+    const height = 400;
+    const canvas = createCanvas(width, height);
+    const ctx = canvas.getContext('2d');
+    
+    // Fill background
+    ctx.fillStyle = '#f8f8f8';
+    ctx.fillRect(0, 0, width, height);
+    
+    // Draw border
+    ctx.strokeStyle = '#ddd';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(10, 10, width - 20, height - 20);
+    
+    // Draw error message
+    ctx.fillStyle = '#d32f2f';
+    ctx.font = 'bold 24px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(message, width / 2, height / 2);
+    
+    // Draw instruction
+    ctx.fillStyle = '#555';
+    ctx.font = '16px Arial';
+    ctx.fillText('Click on a disabled legend item to show it', width / 2, height / 2 + 40);
+    
+    return Promise.resolve(canvas.toBuffer('image/png'));
   }
 }
 
