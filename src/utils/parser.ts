@@ -6,6 +6,9 @@ import { ParsedData } from '../types';
  * 2. key1 - value1
  *    key2 - value2
  *    ...
+ * 3. key1 value1
+ *    key2 value2
+ *    ...
  * 
  * Values can be integers or decimals.
  * 
@@ -84,6 +87,13 @@ export function parseMessage(message: string): ParsedData[] {
     // Pattern 2: key - value 
     if (!matches || matches.length < 3) {
       matches = pair.match(/([^-]+)\s*-\s*(\d+(\.\d+)?)/);
+    }
+    
+    // Pattern 3: key value (with space but no dash)
+    if (!matches || matches.length < 3) {
+      // This pattern assumes the last word in the line is the numeric value
+      // and everything before it is the key
+      matches = pair.match(/(.+)\s+(\d+(\.\d+)?)$/);
     }
     
     if (!matches || matches.length < 3) {
