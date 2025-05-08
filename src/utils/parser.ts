@@ -2,15 +2,14 @@ import { ParsedData } from '../types';
 
 /**
  * Parses a message string in various formats:
- * 1. "key1" - value1, "key2" - value2, ...
- * 2. key1 - value1
+ * 1. key1 - value1
  *    key2 - value2
  *    ...
- * 3. key1 value1
+ * 2. key1 value1
  *    key2 value2
  *    ...
  * 
- * Values can be integers or decimals.
+ * Values can be integers or decimals with either dots (75.3) or commas (75,3).
  * 
  * If a date is provided in the format "DATE: YYYY-MM-DD" at the beginning of the message,
  * all data points will be assigned that timestamp.
@@ -69,39 +68,43 @@ export function parseMessage(message: string): ParsedData[] {
     }
   }
   
-  // Check if the message format is comma-separated or line-separated
-  const isCommaSeparated = cleaned.includes(',');
+  // Split by newlines
+  const lines = cleaned.split('\n').map(line => line.trim()).filter(line => line.length > 0);
   
-  // Split by appropriate delimiter (commas or newlines)
-  const pairs = isCommaSeparated 
-    ? cleaned.split(',').map(pair => pair.trim()).filter(pair => pair.length > 0)
-    : cleaned.split('\n').map(pair => pair.trim()).filter(pair => pair.length > 0);
-  
-  // Parse each pair into key and value
-  return pairs.map(pair => {
-    // Try different regex patterns to extract key and value
+  // Process each line
+  return lines.map(line => {
+    let key: string;
+    let valueStr: string;
     
-    // Pattern 1: "key" - value
-    let matches = pair.match(/"([^"]+)"\s*-\s*(\d+(\.\d+)?)/);
-    
-    // Pattern 2: key - value 
-    if (!matches || matches.length < 3) {
-      matches = pair.match(/([^-]+)\s*-\s*(\d+(\.\d+)?)/);
+    // Check for format: key - value
+    if (line.includes(' - ')) {
+      const parts = line.split(' - ').map(part => part.trim());
+      if (parts.length !== 2) {
+        throw new Error(`Invalid format in line: ${line}`);
+      }
+      
+      key = parts[0];
+      valueStr = parts[1];
+    }
+    // Check for format: key value
+    else {
+      // Find the last occurrence of a space followed by a number
+      const match = line.match(/^(.+)\s+(\d+(?:[.,]\d+)?)$/);
+      if (!match || match.length < 3) {
+        throw new Error(`Invalid format in line: ${line}`);
+      }
+      
+      key = match[1].trim();
+      valueStr = match[2];
     }
     
-    // Pattern 3: key value (with space but no dash)
-    if (!matches || matches.length < 3) {
-      // This pattern assumes the last word in the line is the numeric value
-      // and everything before it is the key
-      matches = pair.match(/(.+)\s+(\d+(\.\d+)?)$/);
-    }
+    // Convert comma to dot for decimal values before parsing
+    const normalizedValue = valueStr.replace(',', '.');
+    const value = parseFloat(normalizedValue);
     
-    if (!matches || matches.length < 3) {
-      throw new Error(`Invalid format in pair: ${pair}`);
+    if (isNaN(value)) {
+      throw new Error(`Invalid numeric value in line: ${line}`);
     }
-    
-    const key = matches[1].trim();
-    const value = parseFloat(matches[2]);
     
     // Return object with timestamp if date was specified
     return messageDate 

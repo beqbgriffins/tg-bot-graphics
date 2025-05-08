@@ -36,6 +36,7 @@ bot.start((ctx) => {
     '2. Just space:\n' +
     'key1 value1\n' + 
     'key2 value2\n\n' +
+    'Numbers can use either dot (75.3) or comma (75,3) as decimal separator.\n\n' +
     'For historical data, include a date at the beginning:\n' +
     'DATE: YYYY-MM-DD\n' +
     'key1 value1\n' +
@@ -49,14 +50,14 @@ bot.help((ctx) => {
   ctx.reply(
     'How to use the Data Graph Bot:\n\n' +
     '1. Send data in one of these formats:\n\n' +
-    'Format 1 (single line, comma-separated):\n' +
-    '"key1" - value1, "key2" - value2, ...\n\n' +
-    'Format 2 (with dash):\n' +
+    'Format 1 (with dash):\n' +
     'key1 - value1\n' +
     'key2 - value2\n\n' +
-    'Format 3 (just space):\n' +
+    'Format 2 (just space):\n' +
     'key1 value1\n' +
     'key2 value2\n\n' +
+    'You can use either dot or comma as decimal separator:\n' +
+    'Вес 75.3 or Вес 75,3\n\n' +
     '2. For historical data, add a date at the beginning:\n' +
     'DATE: YYYY-MM-DD\n' +
     'key1 value1\n' +
@@ -134,14 +135,13 @@ bot.on(message('text'), (ctx) => {
     console.error('Error processing message:', error);
     ctx.reply(
       'Error processing your message. Please ensure it follows one of these formats:\n\n' +
-      'Format 1 (comma-separated):\n' +
-      '"key1" - value1, "key2" - value2\n\n' +
-      'Format 2 (with dash):\n' +
-      'key1 - value1\n' +
-      'key2 - value2\n\n' +
-      'Format 3 (just space):\n' +
-      'key1 value1\n' +
-      'key2 value2\n\n' +
+      'Format 1 (with dash):\n' +
+      'key1 - 75.3\n' +
+      'key2 - 117,8\n\n' +
+      'Format 2 (just space):\n' +
+      'key1 75.3\n' +
+      'key2 117,8\n\n' +
+      'Both dot (75.3) and comma (75,3) decimal separators are supported.\n\n' +
       'For historical data, add a date:\n' +
       'DATE: YYYY-MM-DD\n' +
       'key1 value1\n\n' +
