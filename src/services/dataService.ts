@@ -8,7 +8,8 @@ class DataService {
    * @param data Array of parsed data points
    */
   public addData(data: ParsedData[]): void {
-    const timestamp = new Date();
+    // Default timestamp is current time
+    const defaultTimestamp = new Date();
     
     data.forEach(item => {
       // Initialize the key if it doesn't exist
@@ -18,6 +19,9 @@ class DataService {
           timestamps: []
         };
       }
+      
+      // Use provided timestamp if available, otherwise use default
+      const timestamp = item.timestamp || defaultTimestamp;
       
       // Add the new data point
       this.dataStore[item.key].values.push(item.value);

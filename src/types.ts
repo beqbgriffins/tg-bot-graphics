@@ -14,4 +14,5 @@ export interface DataSet {
 export interface ParsedData {
   key: string;
   value: number;
+  timestamp?: Date; // Optional timestamp for historical data
 }

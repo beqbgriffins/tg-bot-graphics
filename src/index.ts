@@ -30,8 +30,15 @@ bot.start((ctx) => {
   ctx.reply(
     'Welcome to the Data Graph Bot!\n\n' +
     'Send me data in the format:\n' +
-    '"key1" - value1, "key2" - value2, ...\n\n' +
-    'Example: "temperature" - 25, "humidity" - 60\n\n' +
+    'key1 - value1\n' + 
+    'key2 - value2\n\n' +
+    'Example: \n' +
+    'temperature - 25\n' +
+    'humidity - 60\n\n' +
+    'For historical data, include a date at the beginning:\n' +
+    'DATE: YYYY-MM-DD\n' +
+    'key1 - value1\n' +
+    'key2 - value2\n\n' +
     'I will create a timeline graph for your data.'
   );
 });
@@ -40,10 +47,20 @@ bot.start((ctx) => {
 bot.help((ctx) => {
   ctx.reply(
     'How to use the Data Graph Bot:\n\n' +
-    '1. Send data in the format:\n' +
+    '1. Send data in one of these formats:\n\n' +
+    'Format 1 (single line, comma-separated):\n' +
     '"key1" - value1, "key2" - value2, ...\n\n' +
-    'Example: "temperature" - 25, "humidity" - 60\n\n' +
-    '2. I will store your data and plot it on a timeline.\n\n' +
+    'Format 2 (multiple lines):\n' +
+    'key1 - value1\n' +
+    'key2 - value2\n\n' +
+    '2. For historical data, add a date at the beginning:\n' +
+    'DATE: YYYY-MM-DD\n' +
+    'key1 - value1\n' +
+    'key2 - value2\n\n' +
+    'Or with DD.MM.YYYY format:\n' +
+    'DATE: DD.MM.YYYY\n' +
+    'key1 - value1\n\n' +
+    '3. I will store your data and plot it on a timeline.\n\n' +
     'Commands:\n' +
     '/chart - Get the latest chart URL\n' +
     '/clear - Clear all stored data\n' +
@@ -92,16 +109,36 @@ bot.on(message('text'), (ctx) => {
     
     // Generate response
     const keys = parsedData.map(item => `"${item.key}"`).join(', ');
-    ctx.reply(
-      `✅ Received data for ${keys}.\n\n` +
-      `View the updated chart: ${server.getChartUrl()}`
-    );
-  } catch (error) {
+    
+    // Check if this was historical data
+    const hasHistoricalData = parsedData.some(item => item.timestamp !== undefined);
+    let message = `✅ Received data for ${keys}.\n\n`;
+    
+    if (hasHistoricalData) {
+      // Get the date of the first item with a timestamp
+      const historyDate = parsedData.find(item => item.timestamp !== undefined)?.timestamp;
+      if (historyDate) {
+        const dateStr = historyDate.toISOString().split('T')[0];
+        message += `Data recorded for date: ${dateStr}\n\n`;
+      }
+    }
+    
+    message += `View the updated chart: ${server.getChartUrl()}`;
+    
+    ctx.reply(message);
+  } catch (error: any) {
     console.error('Error processing message:', error);
     ctx.reply(
-      'Error processing your message. Please ensure it follows the format:\n' +
-      '"key1" - value1, "key2" - value2, ...\n\n' +
-      'Example: "temperature" - 25, "humidity" - 60'
+      'Error processing your message. Please ensure it follows the format:\n\n' +
+      'Format 1 (single line):\n' +
+      '"key1" - value1, "key2" - value2\n\n' +
+      'Format 2 (multiple lines):\n' +
+      'key1 - value1\n' +
+      'key2 - value2\n\n' +
+      'For historical data, add a date:\n' +
+      'DATE: YYYY-MM-DD\n' +
+      'key1 - value1\n\n' +
+      'Error details: ' + (error.message || 'Unknown error')
     );
   }
 });
