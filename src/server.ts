@@ -5,13 +5,19 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 
+// Define interface for group data
+interface GroupData {
+  name: string;
+  metrics: string[];
+}
+
 class Server {
   private app = express();
   private port: number;
   private host: string;
   private userTokens: Map<number, string> = new Map(); // Map user IDs to secure tokens
   // We'll keep this for backward compatibility, but migrate to dataService storage
-  private userGroups: Map<number, Map<string, string[]>> = new Map(); // Store user-defined chart groups
+  private userGroups: Map<number, Map<string, string[] | GroupData>> = new Map(); // Store user-defined chart groups
   private persistenceDir: string = path.join(process.cwd(), 'data');
   private tokensFilePath: string;
   private groupsFilePath: string;
@@ -184,10 +190,10 @@ class Server {
   private saveGroups(): void {
     try {
       // Convert nested Maps to Objects for serialization
-      const groupsObj: Record<string, Record<string, string[]>> = {};
+      const groupsObj: Record<string, Record<string, string[] | { name: string, metrics: string[] }>> = {};
       
       this.userGroups.forEach((groupMap, userId) => {
-        const userGroups: Record<string, string[]> = {};
+        const userGroups: Record<string, string[] | { name: string, metrics: string[] }> = {};
         
         groupMap.forEach((metrics, groupId) => {
           userGroups[groupId] = metrics;
@@ -220,7 +226,7 @@ class Server {
         // Convert Objects to Maps
         Object.entries(groupsObj).forEach(([userIdStr, userGroups]) => {
           const userId = parseInt(userIdStr, 10);
-          const groupMap = new Map<string, string[]>();
+          const groupMap = new Map<string, string[] | GroupData>();
           
           Object.entries(userGroups).forEach(([groupId, groupInfo]) => {
             // Convert old format to new if needed
@@ -228,7 +234,7 @@ class Server {
               groupMap.set(groupId, {
                 name: groupId,
                 metrics: groupInfo
-              });
+              } as GroupData);
             } else {
               groupMap.set(groupId, groupInfo);
             }
@@ -272,8 +278,17 @@ class Server {
         }
         
         // Support both old and new format
-        const metrics = groupData.metrics || groupData;
-        const name = groupData.name || groupId;
+        let metrics: string[] = [];
+        let name = groupId;
+        
+        if (Array.isArray(groupData)) {
+          metrics = groupData;
+        } else if (typeof groupData === 'object' && groupData !== null) {
+          // It's a GroupData object
+          const typedGroupData = groupData as GroupData;
+          metrics = typedGroupData.metrics || [];
+          name = typedGroupData.name || groupId;
+        }
         
         // Create group in dataService
         dataService.createChartGroup(userId, name, Array.isArray(metrics) ? metrics : []);
@@ -311,7 +326,7 @@ class Server {
     this.userGroups.get(userId)!.set(groupId, {
       name: groupName,
       metrics: metrics
-    });
+    } as GroupData);
     
     // Save changes to disk
     this.saveGroups();
@@ -550,10 +565,17 @@ class Server {
       }
       
       // Support both old and new format
-      const metrics = Array.isArray(groupData.metrics) ? 
-                      groupData.metrics : 
-                      (Array.isArray(groupData) ? groupData : []);
-      const groupName = groupData.name || groupId;
+      let metrics: string[] = [];
+      let groupName = groupId;
+      
+      if (Array.isArray(groupData)) {
+        metrics = groupData;
+      } else if (typeof groupData === 'object' && groupData !== null) {
+        // It's a GroupData object
+        const typedGroupData = groupData as GroupData;
+        metrics = typedGroupData.metrics || [];
+        groupName = typedGroupData.name || groupId;
+      }
       
       const data = dataService.getUserData(userId);
       
@@ -646,8 +668,8 @@ class Server {
     const groups = this.getUserGroups(userId);
     const groupsArray = Array.from(groups.entries()).map(([groupId, groupData]) => {
       // Support both old and new format
-      const metrics = groupData.metrics || groupData;
-      const groupName = groupData.name || groupId;
+      const metrics = Array.isArray(groupData) ? groupData : (groupData as GroupData).metrics || groupData;
+      const groupName = Array.isArray(groupData) ? groupId : (groupData as GroupData).name || groupId;
       
       return {
         groupId,
