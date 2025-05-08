@@ -3,8 +3,8 @@ import { Chart, ChartConfiguration } from 'chart.js';
 import { DataPoint } from '../types';
 
 // Register required Chart.js components
-import { Registry, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend } from 'chart.js';
-Registry.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
+import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend } from 'chart.js';
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
 
 class ChartService {
   /**
