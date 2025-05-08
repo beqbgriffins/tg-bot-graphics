@@ -1,10 +1,31 @@
 import { createCanvas } from 'canvas';
-import { Chart, ChartConfiguration } from 'chart.js';
 import { DataPoint } from '../types';
 
-// Register required Chart.js components
-import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend } from 'chart.js';
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
+// Import and register all required Chart.js components
+import {
+  Chart,
+  ChartConfiguration,
+  LineController,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend
+} from 'chart.js';
+
+// Register all necessary components
+Chart.register(
+  LineController,   // This was missing - needed for 'line' chart type
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend
+);
 
 class ChartService {
   /**
@@ -36,9 +57,23 @@ class ChartService {
       .sort((a, b) => a - b)
       .map(t => new Date(t));
     
-    // Format timestamps for x-axis (simple format: HH:MM:SS)
+    // Format timestamps for x-axis
     const labels = allTimestamps.map(t => {
-      return t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      // Include date in label if there's more than one day in the data
+      const hasMultipleDays = allTimestamps.some(date => 
+        date.getDate() !== allTimestamps[0].getDate() ||
+        date.getMonth() !== allTimestamps[0].getMonth() ||
+        date.getFullYear() !== allTimestamps[0].getFullYear()
+      );
+      
+      if (hasMultipleDays) {
+        // Show date and time for multi-day datasets
+        return t.toLocaleDateString() + ' ' + 
+               t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      } else {
+        // Show only time for same-day data
+        return t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      }
     });
     
     // Create datasets for Chart.js
@@ -68,8 +103,8 @@ class ChartService {
     });
     
     // Create canvas and chart
-    const width = 800;
-    const height = 500;
+    const width = 1000;   // Increased width for better visualization
+    const height = 600;   // Increased height for better visualization
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext('2d');
     
@@ -87,6 +122,10 @@ class ChartService {
             title: {
               display: true,
               text: 'Time'
+            },
+            ticks: {
+              maxRotation: 45,  // Rotate labels for better readability
+              minRotation: 45
             }
           },
           y: {
@@ -114,7 +153,8 @@ class ChartService {
       }
     };
     
-    // @ts-ignore - There's a type mismatch between node-canvas and chart.js
+    // Create the chart
+    // @ts-ignore - Type mismatch between canvas and chart.js
     new Chart(ctx, chartConfig);
     
     // Convert to buffer
