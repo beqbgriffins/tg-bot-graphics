@@ -21,10 +21,12 @@ class Server {
   private persistenceDir: string = path.join(process.cwd(), 'data');
   private tokensFilePath: string;
   private groupsFilePath: string;
+  private useHostHeaderWhenAvailable: boolean = true; // New flag to use host header when available
   
-  constructor(port: number, host: string) {
+  constructor(port: number, host: string, useHostHeaderWhenAvailable: boolean = true) {
     this.port = port;
     this.host = host;
+    this.useHostHeaderWhenAvailable = useHostHeaderWhenAvailable;
     
     // Set up persistence paths
     if (!fs.existsSync(this.persistenceDir)) {
@@ -44,6 +46,22 @@ class Server {
   private setup(): void {
     // Configure middleware
     this.app.use(express.json());
+    
+    // Add middleware to capture host from request
+    this.app.use((req, res, next) => {
+      if (this.useHostHeaderWhenAvailable) {
+        const protocol = req.headers['x-forwarded-proto'] || (req.secure ? 'https' : 'http');
+        const host = req.headers['x-forwarded-host'] || req.headers.host;
+        
+        if (host && !this.host.includes(host.toString())) {
+          // Update host if it's different from what's configured
+          const newHost = `${protocol}://${host}`;
+          console.log(`Updating host from ${this.host} to ${newHost}`);
+          this.host = newHost;
+        }
+      }
+      next();
+    });
     
     // Route for serving combined chart images
     this.app.get('/chart/:token', this.handleChartRequest.bind(this));
@@ -391,8 +409,8 @@ class Server {
         groupId,
         groupName,
         metrics,
-        chartUrl: `${this.host}/chart/${token}/group/${groupId}`,
-        viewUrl: `${this.host}/view/${token}?group=${groupId}`
+        chartUrl: `${this.getHostUrl()}/chart/${token}/group/${groupId}`,
+        viewUrl: `${this.getHostUrl()}/view/${token}?group=${groupId}`
       });
     } catch (error) {
       console.error('Error creating group:', error);
@@ -421,8 +439,8 @@ class Server {
         groupId,
         groupName: groupData.name || groupId,
         metrics: groupData.metrics || groupData,
-        chartUrl: `${this.host}/chart/${token}/group/${groupId}`,
-        viewUrl: `${this.host}/view/${token}?group=${groupId}`
+        chartUrl: `${this.getHostUrl()}/chart/${token}/group/${groupId}`,
+        viewUrl: `${this.getHostUrl()}/view/${token}?group=${groupId}`
       }));
       
       res.json(groupsArray);
@@ -1695,12 +1713,20 @@ class Server {
   }
   
   /**
+   * Gets the appropriate host URL
+   * @returns The host URL to use
+   */
+  private getHostUrl(): string {
+    return this.host;
+  }
+  
+  /**
    * Gets the chart URL for a specific user
    * @param userId The Telegram user ID
    */
   public getUserChartUrl(userId: number): string {
     const token = this.getUserToken(userId);
-    return `${this.host}/view/${token}`;
+    return `${this.getHostUrl()}/view/${token}`;
   }
 }
 
