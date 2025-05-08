@@ -8,6 +8,7 @@ class Server {
   private port: number;
   private host: string;
   private userTokens: Map<number, string> = new Map(); // Map user IDs to secure tokens
+  private userGroups: Map<number, Map<string, string[]>> = new Map(); // Store user-defined chart groups
   
   constructor(port: number, host: string) {
     this.port = port;
@@ -19,14 +20,28 @@ class Server {
     // Configure middleware
     this.app.use(express.json());
     
-    // Route for serving chart images
+    // Route for serving combined chart images
     this.app.get('/chart/:token', this.handleChartRequest.bind(this));
+    
+    // Route for serving single metric charts
+    this.app.get('/chart/:token/metric/:metric', this.handleSingleMetricChartRequest.bind(this));
+    
+    // Route for serving grouped charts
+    this.app.get('/chart/:token/group/:groupId', this.handleGroupChartRequest.bind(this));
+    
+    // API for creating and managing groups
+    this.app.post('/api/:token/groups', express.json(), this.handleCreateGroup.bind(this));
+    this.app.get('/api/:token/groups', this.handleListGroups.bind(this));
+    this.app.delete('/api/:token/groups/:groupId', this.handleDeleteGroup.bind(this));
     
     // Route for serving chart page with some basic styling
     this.app.get('/view/:token', this.handleViewRequest.bind(this));
     
     // Route for providing JSON data
     this.app.get('/data/:token', this.handleDataRequest.bind(this));
+    
+    // Route for getting all metrics for a user
+    this.app.get('/api/:token/metrics', this.handleGetMetrics.bind(this));
   }
   
   /**
@@ -60,6 +75,172 @@ class Server {
     return undefined;
   }
   
+  /**
+   * Create a new group for a user
+   * @param userId User ID
+   * @param groupName Group name
+   * @param metrics Array of metrics to include
+   * @returns Group ID
+   */
+  public createGroup(userId: number, groupName: string, metrics: string[]): string {
+    // Initialize user's groups if needed
+    if (!this.userGroups.has(userId)) {
+      this.userGroups.set(userId, new Map());
+    }
+    
+    // Generate a unique group ID
+    const groupId = crypto.randomBytes(8).toString('hex');
+    
+    // Store the group
+    this.userGroups.get(userId)!.set(groupId, metrics);
+    
+    return groupId;
+  }
+  
+  /**
+   * Get all groups for a user
+   * @param userId User ID
+   * @returns Map of group IDs to metric arrays
+   */
+  public getUserGroups(userId: number): Map<string, string[]> {
+    return this.userGroups.get(userId) || new Map();
+  }
+  
+  /**
+   * Delete a group for a user
+   * @param userId User ID
+   * @param groupId Group ID
+   * @returns True if successful
+   */
+  public deleteGroup(userId: number, groupId: string): boolean {
+    if (!this.userGroups.has(userId)) {
+      return false;
+    }
+    
+    return this.userGroups.get(userId)!.delete(groupId);
+  }
+  
+  /**
+   * Handle API request to create a new group
+   */
+  private handleCreateGroup(req: Request, res: Response): void {
+    try {
+      const token = req.params.token;
+      const userId = this.getUserIdFromToken(token);
+      
+      if (userId === undefined) {
+        res.status(403).json({ error: 'Invalid token' });
+        return;
+      }
+      
+      const { groupName, metrics } = req.body;
+      
+      if (!groupName || !metrics || !Array.isArray(metrics) || metrics.length === 0) {
+        res.status(400).json({ error: 'Invalid request. Please provide groupName and metrics array.' });
+        return;
+      }
+      
+      // Create the group
+      const groupId = this.createGroup(userId, groupName, metrics);
+      
+      res.json({
+        groupId,
+        groupName,
+        metrics,
+        chartUrl: `${this.host}/chart/${token}/group/${groupId}`,
+        viewUrl: `${this.host}/view/${token}?group=${groupId}`
+      });
+    } catch (error) {
+      console.error('Error creating group:', error);
+      res.status(500).json({ error: 'Error creating group' });
+    }
+  }
+  
+  /**
+   * Handle API request to list all groups
+   */
+  private handleListGroups(req: Request, res: Response): void {
+    try {
+      const token = req.params.token;
+      const userId = this.getUserIdFromToken(token);
+      
+      if (userId === undefined) {
+        res.status(403).json({ error: 'Invalid token' });
+        return;
+      }
+      
+      // Get user's groups
+      const groups = this.getUserGroups(userId);
+      
+      // Convert to array format for JSON
+      const groupsArray = Array.from(groups.entries()).map(([groupId, metrics]) => ({
+        groupId,
+        metrics,
+        chartUrl: `${this.host}/chart/${token}/group/${groupId}`,
+        viewUrl: `${this.host}/view/${token}?group=${groupId}`
+      }));
+      
+      res.json(groupsArray);
+    } catch (error) {
+      console.error('Error listing groups:', error);
+      res.status(500).json({ error: 'Error listing groups' });
+    }
+  }
+  
+  /**
+   * Handle API request to delete a group
+   */
+  private handleDeleteGroup(req: Request, res: Response): void {
+    try {
+      const token = req.params.token;
+      const groupId = req.params.groupId;
+      const userId = this.getUserIdFromToken(token);
+      
+      if (userId === undefined) {
+        res.status(403).json({ error: 'Invalid token' });
+        return;
+      }
+      
+      // Delete the group
+      const success = this.deleteGroup(userId, groupId);
+      
+      if (success) {
+        res.json({ success: true, message: 'Group deleted successfully' });
+      } else {
+        res.status(404).json({ error: 'Group not found' });
+      }
+    } catch (error) {
+      console.error('Error deleting group:', error);
+      res.status(500).json({ error: 'Error deleting group' });
+    }
+  }
+  
+  /**
+   * Handle request for getting all metrics
+   */
+  private handleGetMetrics(req: Request, res: Response): void {
+    try {
+      const token = req.params.token;
+      const userId = this.getUserIdFromToken(token);
+      
+      if (userId === undefined) {
+        res.status(403).json({ error: 'Invalid token' });
+        return;
+      }
+      
+      // Get user's data
+      const data = dataService.getUserData(userId);
+      
+      // Extract unique metrics
+      const metrics = [...new Set(data.map(point => point.key))].sort();
+      
+      res.json(metrics);
+    } catch (error) {
+      console.error('Error getting metrics:', error);
+      res.status(500).json({ error: 'Error getting metrics' });
+    }
+  }
+  
   private async handleChartRequest(req: Request, res: Response): Promise<void> {
     try {
       const token = req.params.token;
@@ -86,6 +267,72 @@ class Server {
       res.send(chartBuffer);
     } catch (error) {
       console.error('Error generating chart:', error);
+      res.status(500).send('Error generating chart');
+    }
+  }
+  
+  private async handleSingleMetricChartRequest(req: Request, res: Response): Promise<void> {
+    try {
+      const token = req.params.token;
+      const metric = req.params.metric;
+      const userId = this.getUserIdFromToken(token);
+      
+      if (userId === undefined) {
+        res.status(403).send('Invalid token');
+        return;
+      }
+      
+      const data = dataService.getUserData(userId);
+      
+      if (data.length === 0) {
+        res.status(404).send('No data available');
+        return;
+      }
+      
+      const chartBuffer = await chartService.generateSingleKeyChart(data, metric);
+      
+      res.set('Content-Type', 'image/png');
+      res.send(chartBuffer);
+    } catch (error) {
+      console.error('Error generating metric chart:', error);
+      res.status(500).send('Error generating chart');
+    }
+  }
+  
+  private async handleGroupChartRequest(req: Request, res: Response): Promise<void> {
+    try {
+      const token = req.params.token;
+      const groupId = req.params.groupId;
+      const userId = this.getUserIdFromToken(token);
+      
+      if (userId === undefined) {
+        res.status(403).send('Invalid token');
+        return;
+      }
+      
+      // Get the group metrics
+      const groups = this.getUserGroups(userId);
+      const metrics = groups.get(groupId);
+      
+      if (!metrics) {
+        res.status(404).send('Group not found');
+        return;
+      }
+      
+      const data = dataService.getUserData(userId);
+      
+      if (data.length === 0) {
+        res.status(404).send('No data available');
+        return;
+      }
+      
+      // Generate the group chart
+      const chartBuffer = await chartService.generateMultiKeyChart(data, metrics, `Group Chart`);
+      
+      res.set('Content-Type', 'image/png');
+      res.send(chartBuffer);
+    } catch (error) {
+      console.error('Error generating group chart:', error);
       res.status(500).send('Error generating chart');
     }
   }
@@ -133,14 +380,15 @@ class Server {
     
     const data = dataService.getUserData(userId);
     
-    // Get unique keys for the metric filter
-    const allKeys = new Set<string>();
-    data.forEach(point => {
-      allKeys.add(point.key);
-    });
+    // Get unique keys for metrics
+    const allKeys = [...new Set(data.map(point => point.key))].sort();
     
-    // Sort keys alphabetically
-    const sortedKeys = Array.from(allKeys).sort();
+    // Get user's groups
+    const groups = this.getUserGroups(userId);
+    const groupsArray = Array.from(groups.entries()).map(([groupId, metrics]) => ({
+      groupId,
+      metrics
+    }));
     
     res.send(`
       <!DOCTYPE html>
@@ -158,7 +406,7 @@ class Server {
               flex-direction: column;
               align-items: center;
             }
-            h1 {
+            h1, h2, h3 {
               color: #333;
               margin-bottom: 10px;
             }
@@ -178,9 +426,31 @@ class Server {
               max-width: 1100px;
               position: relative;
             }
+            .chart-grid {
+              display: grid;
+              grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+              gap: 20px;
+              width: 90%;
+              max-width: 1100px;
+            }
+            .chart-item {
+              background-color: white;
+              border-radius: 8px;
+              padding: 15px;
+              box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+            }
+            .chart-item-title {
+              font-weight: bold;
+              margin-bottom: 10px;
+              font-size: 16px;
+            }
             img {
               max-width: 100%;
               height: auto;
+              border-radius: 4px;
             }
             button {
               background-color: #4CAF50;
@@ -198,6 +468,18 @@ class Server {
             }
             button:hover {
               background-color: #45a049;
+            }
+            button.secondary {
+              background-color: #607d8b;
+            }
+            button.secondary:hover {
+              background-color: #546e7a;
+            }
+            button.danger {
+              background-color: #f44336;
+            }
+            button.danger:hover {
+              background-color: #e53935;
             }
             .data-table {
               width: 90%;
@@ -296,41 +578,224 @@ class Server {
               color: #666;
               border-left: 4px solid #4CAF50;
             }
+            .tabs {
+              display: flex;
+              margin-bottom: 20px;
+              width: 90%;
+              max-width: 1100px;
+            }
+            .tab {
+              padding: 10px 20px;
+              background: #e0e0e0;
+              border-radius: 4px 4px 0 0;
+              cursor: pointer;
+              user-select: none;
+              border: 1px solid #ccc;
+              border-bottom: none;
+              margin-right: 5px;
+            }
+            .tab.active {
+              background: white;
+              font-weight: bold;
+            }
+            .tab-content {
+              display: none;
+              width: 90%;
+              max-width: 1100px;
+            }
+            .tab-content.active {
+              display: block;
+            }
+            .group-creation {
+              background-color: white;
+              border-radius: 8px;
+              padding: 20px;
+              box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+              margin: 20px 0;
+              width: 90%;
+              max-width: 1100px;
+            }
+            .form-group {
+              margin-bottom: 15px;
+            }
+            label {
+              display: block;
+              margin-bottom: 5px;
+              font-weight: bold;
+            }
+            input[type="text"] {
+              width: 100%;
+              padding: 8px;
+              border: 1px solid #ccc;
+              border-radius: 4px;
+              font-size: 16px;
+            }
+            .checkbox-list {
+              display: grid;
+              grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+              gap: 10px;
+              margin-top: 10px;
+            }
+            .checkbox-item {
+              display: flex;
+              align-items: center;
+            }
+            .group-list {
+              margin-top: 20px;
+              width: 100%;
+            }
+            .group-item {
+              padding: 15px;
+              background-color: #f9f9f9;
+              border-radius: 8px;
+              margin-bottom: 10px;
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+            }
+            .group-name {
+              font-weight: bold;
+            }
+            .group-metrics {
+              font-size: 14px;
+              color: #666;
+              margin-top: 5px;
+            }
+            .group-actions {
+              display: flex;
+              gap: 10px;
+            }
+            .action-button {
+              padding: 5px 10px;
+              border-radius: 4px;
+              cursor: pointer;
+              font-size: 14px;
+              border: none;
+              color: white;
+            }
+            .view-btn {
+              background-color: #2196f3;
+            }
+            .delete-btn {
+              background-color: #f44336;
+            }
           </style>
         </head>
         <body>
           <h1>Your Data Timeline</h1>
-          <p class="subheader">Showing ${data.length} data points across ${sortedKeys.length} metrics</p>
+          <p class="subheader">Analysis of your ${allKeys.length} metrics across ${data.length} data points</p>
           
           <div class="private-notice">
             <strong>Private Dashboard</strong>: This visualization shows only your data. No one else can see your measurements.
           </div>
           
-          <div class="chart-container">
-            <div class="controls-header">Toggle metrics:</div>
-            <div class="legend" id="legend">
-              <!-- Legend items will be inserted here by JavaScript -->
-            </div>
-            <div id="loading" class="loading" style="display: none;">Loading...</div>
-            <img src="/chart/${token}" alt="Data Timeline Chart" id="chart-image">
+          <div class="tabs">
+            <div class="tab active" data-tab="combined">Combined Chart</div>
+            <div class="tab" data-tab="individual">Individual Metrics</div>
+            <div class="tab" data-tab="groups">Metric Groups</div>
+            <div class="tab" data-tab="data">Data Table</div>
           </div>
           
-          <button class="refresh-button" onclick="refreshChart()">Refresh Chart</button>
+          <!-- Combined Chart Tab -->
+          <div class="tab-content active" id="combined-tab">
+            <div class="chart-container">
+              <div class="controls-header">Toggle metrics:</div>
+              <div class="legend" id="legend">
+                <!-- Legend items will be inserted here by JavaScript -->
+              </div>
+              <div id="loading" class="loading" style="display: none;">Loading...</div>
+              <img src="/chart/${token}" alt="Combined Data Timeline Chart" id="chart-image">
+            </div>
+            
+            <button class="refresh-button" onclick="refreshChart()">Refresh Chart</button>
+          </div>
           
-          <div class="data-table" id="data-table">
-            <table>
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Time</th>
-                  <th>Metric</th>
-                  <th>Value</th>
-                </tr>
-              </thead>
-              <tbody id="data-table-body">
-                <!-- Data will be loaded here -->
-              </tbody>
-            </table>
+          <!-- Individual Metrics Tab -->
+          <div class="tab-content" id="individual-tab">
+            <h2>Individual Metric Charts</h2>
+            <p>Each chart shows the progression of a single metric over time.</p>
+            
+            <div class="chart-grid" id="metric-charts">
+              <!-- Individual metric charts will be inserted here -->
+              ${allKeys.map(key => `
+                <div class="chart-item">
+                  <div class="chart-item-title">${key}</div>
+                  <img src="/chart/${token}/metric/${encodeURIComponent(key)}?t=${Date.now()}" alt="${key} Chart">
+                </div>
+              `).join('')}
+            </div>
+          </div>
+          
+          <!-- Groups Tab -->
+          <div class="tab-content" id="groups-tab">
+            <h2>Metric Groups</h2>
+            <p>Create custom groups of metrics to analyze them together.</p>
+            
+            <div class="group-creation">
+              <h3>Create New Group</h3>
+              <div class="form-group">
+                <label for="group-name">Group Name:</label>
+                <input type="text" id="group-name" placeholder="Enter group name">
+              </div>
+              
+              <div class="form-group">
+                <label>Select Metrics:</label>
+                <div class="checkbox-list" id="metrics-selection">
+                  ${allKeys.map(key => `
+                    <div class="checkbox-item">
+                      <input type="checkbox" id="metric-${key}" value="${key}">
+                      <label for="metric-${key}">${key}</label>
+                    </div>
+                  `).join('')}
+                </div>
+              </div>
+              
+              <button onclick="createGroup()">Create Group</button>
+            </div>
+            
+            <div class="group-list" id="group-list">
+              <h3>Your Groups</h3>
+              
+              ${groupsArray.length === 0 ? '<p>No groups created yet.</p>' : ''}
+              
+              ${groupsArray.map(group => `
+                <div class="group-item" data-group-id="${group.groupId}">
+                  <div>
+                    <div class="group-name">${group.groupId}</div>
+                    <div class="group-metrics">${group.metrics.join(', ')}</div>
+                  </div>
+                  <div class="group-actions">
+                    <button class="action-button view-btn" onclick="viewGroup('${group.groupId}')">View</button>
+                    <button class="action-button delete-btn" onclick="deleteGroup('${group.groupId}')">Delete</button>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+            
+            <!-- Group Chart Container (initially hidden) -->
+            <div class="chart-container" id="group-chart-container" style="display: none;">
+              <h3 id="group-chart-title">Group Chart</h3>
+              <img src="" alt="Group Chart" id="group-chart-image">
+            </div>
+          </div>
+          
+          <!-- Data Table Tab -->
+          <div class="tab-content" id="data-tab">
+            <div class="data-table" id="data-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Time</th>
+                    <th>Metric</th>
+                    <th>Value</th>
+                  </tr>
+                </thead>
+                <tbody id="data-table-body">
+                  <!-- Data will be loaded here -->
+                </tbody>
+              </table>
+            </div>
           </div>
           
           <script>
@@ -351,9 +816,36 @@ class Server {
             window.addEventListener('DOMContentLoaded', initializePage);
             
             function initializePage() {
+              // Set up tabs
+              setupTabs();
+              
+              // Load data for combined chart and table
               loadData().then(() => {
                 createLegend();
                 populateTable(allData);
+              });
+            }
+            
+            function setupTabs() {
+              const tabs = document.querySelectorAll('.tab');
+              
+              tabs.forEach(tab => {
+                tab.addEventListener('click', () => {
+                  // Remove active class from all tabs
+                  tabs.forEach(t => t.classList.remove('active'));
+                  
+                  // Add active class to clicked tab
+                  tab.classList.add('active');
+                  
+                  // Hide all tab content
+                  document.querySelectorAll('.tab-content').forEach(content => {
+                    content.classList.remove('active');
+                  });
+                  
+                  // Show selected tab content
+                  const tabId = tab.getAttribute('data-tab');
+                  document.getElementById(tabId + '-tab').classList.add('active');
+                });
               });
             }
             
@@ -542,6 +1034,146 @@ class Server {
                 
                 // Update table
                 populateTable(allData);
+                
+                // Refresh individual metric charts
+                refreshMetricCharts();
+              });
+            }
+            
+            function refreshMetricCharts() {
+              // Refresh all individual metric charts
+              const metricCharts = document.querySelectorAll('#metric-charts img');
+              metricCharts.forEach(img => {
+                // Add timestamp to force refresh
+                const src = img.src.split('?')[0];
+                img.src = src + '?t=' + new Date().getTime();
+              });
+            }
+            
+            function createGroup() {
+              const groupName = document.getElementById('group-name').value.trim();
+              if (!groupName) {
+                alert('Please enter a group name');
+                return;
+              }
+              
+              // Get selected metrics
+              const checkboxes = document.querySelectorAll('#metrics-selection input:checked');
+              if (checkboxes.length === 0) {
+                alert('Please select at least one metric');
+                return;
+              }
+              
+              const metrics = Array.from(checkboxes).map(cb => cb.value);
+              
+              // Send request to create group
+              fetch('/api/' + userToken + '/groups', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  groupName,
+                  metrics
+                })
+              })
+              .then(response => response.json())
+              .then(data => {
+                // Add the new group to the list
+                const groupList = document.getElementById('group-list');
+                
+                // Remove "no groups" message if it exists
+                const noGroupsMessage = groupList.querySelector('p');
+                if (noGroupsMessage) {
+                  noGroupsMessage.remove();
+                }
+                
+                // Create group item
+                const groupItem = document.createElement('div');
+                groupItem.className = 'group-item';
+                groupItem.dataset.groupId = data.groupId;
+                
+                groupItem.innerHTML = \`
+                  <div>
+                    <div class="group-name">\${groupName}</div>
+                    <div class="group-metrics">\${metrics.join(', ')}</div>
+                  </div>
+                  <div class="group-actions">
+                    <button class="action-button view-btn" onclick="viewGroup('\${data.groupId}')">View</button>
+                    <button class="action-button delete-btn" onclick="deleteGroup('\${data.groupId}')">Delete</button>
+                  </div>
+                \`;
+                
+                groupList.appendChild(groupItem);
+                
+                // Clear form
+                document.getElementById('group-name').value = '';
+                checkboxes.forEach(cb => cb.checked = false);
+                
+                // View the new group
+                viewGroup(data.groupId);
+              })
+              .catch(error => {
+                console.error('Error creating group:', error);
+                alert('Error creating group. Please try again.');
+              });
+            }
+            
+            function viewGroup(groupId) {
+              // Show group chart container
+              const chartContainer = document.getElementById('group-chart-container');
+              chartContainer.style.display = 'block';
+              
+              // Update chart title
+              const groupItem = document.querySelector(\`.group-item[data-group-id="\${groupId}"]\`);
+              const groupName = groupItem ? groupItem.querySelector('.group-name').textContent : 'Group';
+              
+              document.getElementById('group-chart-title').textContent = groupName;
+              
+              // Update chart image
+              const chartImage = document.getElementById('group-chart-image');
+              chartImage.src = \`/chart/\${userToken}/group/\${groupId}?t=\${new Date().getTime()}\`;
+              
+              // Scroll to chart
+              chartContainer.scrollIntoView({ behavior: 'smooth' });
+            }
+            
+            function deleteGroup(groupId) {
+              if (!confirm('Are you sure you want to delete this group?')) {
+                return;
+              }
+              
+              fetch('/api/' + userToken + '/groups/' + groupId, {
+                method: 'DELETE'
+              })
+              .then(response => response.json())
+              .then(data => {
+                if (data.success) {
+                  // Remove group from list
+                  const groupItem = document.querySelector(\`.group-item[data-group-id="\${groupId}"]\`);
+                  if (groupItem) {
+                    groupItem.remove();
+                  }
+                  
+                  // Hide group chart if it's the one being displayed
+                  const chartImage = document.getElementById('group-chart-image');
+                  if (chartImage.src.includes(\`/group/\${groupId}\`)) {
+                    document.getElementById('group-chart-container').style.display = 'none';
+                  }
+                  
+                  // If no groups left, show message
+                  const groupItems = document.querySelectorAll('.group-item');
+                  if (groupItems.length === 0) {
+                    const groupList = document.getElementById('group-list');
+                    groupList.innerHTML = '<h3>Your Groups</h3><p>No groups created yet.</p>';
+                  }
+                } else {
+                  alert('Error deleting group: ' + data.error);
+                }
+              })
+              .catch(error => {
+                console.error('Error deleting group:', error);
+                alert('Error deleting group. Please try again.');
               });
             }
             

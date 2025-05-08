@@ -24,3 +24,26 @@ export interface ParsedData {
 export interface UserDataStore {
   [userId: number]: DataSet;
 }
+
+// Chart group interface
+export interface ChartGroup {
+  id: string;
+  name: string;
+  keys: string[];
+  createdAt: Date;
+}
+
+// User preferences
+export interface UserPreferences {
+  chartGroups: ChartGroup[];
+  defaultView: 'combined' | 'individual' | 'groups';
+  favoriteMetrics: string[]; // Keys that the user frequently views
+}
+
+// Extended user data store with preferences
+export interface UserDataStoreWithPreferences {
+  [userId: number]: {
+    data: DataSet;
+    preferences: UserPreferences;
+  };
+}
