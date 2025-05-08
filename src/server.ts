@@ -1,11 +1,13 @@
 import express, { Request, Response } from 'express';
 import { dataService } from './services/dataService';
 import { chartService } from './services/chartService';
+import crypto from 'crypto';
 
 class Server {
   private app = express();
   private port: number;
   private host: string;
+  private userTokens: Map<number, string> = new Map(); // Map user IDs to secure tokens
   
   constructor(port: number, host: string) {
     this.port = port;
@@ -18,18 +20,57 @@ class Server {
     this.app.use(express.json());
     
     // Route for serving chart images
-    this.app.get('/chart', this.handleChartRequest.bind(this));
+    this.app.get('/chart/:token', this.handleChartRequest.bind(this));
     
     // Route for serving chart page with some basic styling
-    this.app.get('/view', this.handleViewRequest.bind(this));
+    this.app.get('/view/:token', this.handleViewRequest.bind(this));
     
     // Route for providing JSON data
-    this.app.get('/data', this.handleDataRequest.bind(this));
+    this.app.get('/data/:token', this.handleDataRequest.bind(this));
+  }
+  
+  /**
+   * Gets or creates a token for a user
+   * @param userId The Telegram user ID
+   * @returns A secure token for the user
+   */
+  public getUserToken(userId: number): string {
+    // Return existing token if user already has one
+    if (this.userTokens.has(userId)) {
+      return this.userTokens.get(userId)!;
+    }
+    
+    // Generate a new token
+    const token = crypto.randomBytes(16).toString('hex');
+    this.userTokens.set(userId, token);
+    return token;
+  }
+  
+  /**
+   * Get user ID from token
+   * @param token The user token
+   * @returns The user ID or undefined if not found
+   */
+  private getUserIdFromToken(token: string): number | undefined {
+    for (const [userId, userToken] of this.userTokens.entries()) {
+      if (userToken === token) {
+        return userId;
+      }
+    }
+    return undefined;
   }
   
   private async handleChartRequest(req: Request, res: Response): Promise<void> {
     try {
-      const data = dataService.getAllData();
+      const token = req.params.token;
+      const userId = this.getUserIdFromToken(token);
+      
+      if (userId === undefined) {
+        res.status(403).send('Invalid token');
+        return;
+      }
+      
+      const data = dataService.getUserData(userId);
       
       if (data.length === 0) {
         res.status(404).send('No data available');
@@ -51,7 +92,15 @@ class Server {
   
   private handleDataRequest(req: Request, res: Response): void {
     try {
-      const data = dataService.getAllData();
+      const token = req.params.token;
+      const userId = this.getUserIdFromToken(token);
+      
+      if (userId === undefined) {
+        res.status(403).json({ error: 'Invalid token' });
+        return;
+      }
+      
+      const data = dataService.getUserData(userId);
       
       if (data.length === 0) {
         res.status(404).json({ error: 'No data available' });
@@ -74,7 +123,15 @@ class Server {
   }
   
   private handleViewRequest(req: Request, res: Response): void {
-    const data = dataService.getAllData();
+    const token = req.params.token;
+    const userId = this.getUserIdFromToken(token);
+    
+    if (userId === undefined) {
+      res.status(403).send('Invalid token');
+      return;
+    }
+    
+    const data = dataService.getUserData(userId);
     
     // Get unique keys for the metric filter
     const allKeys = new Set<string>();
@@ -89,7 +146,7 @@ class Server {
       <!DOCTYPE html>
       <html>
         <head>
-          <title>Data Timeline</title>
+          <title>Your Data Timeline</title>
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <style>
             body {
@@ -230,11 +287,24 @@ class Server {
               font-size: 18px;
               font-weight: bold;
             }
+            .private-notice {
+              background-color: #fafafa;
+              border-radius: 4px;
+              padding: 10px 15px;
+              margin-bottom: 20px;
+              font-size: 14px;
+              color: #666;
+              border-left: 4px solid #4CAF50;
+            }
           </style>
         </head>
         <body>
-          <h1>Data Timeline Visualization</h1>
-          <p class="subheader">Showing ${data.length} data points for ${sortedKeys.length} metrics</p>
+          <h1>Your Data Timeline</h1>
+          <p class="subheader">Showing ${data.length} data points across ${sortedKeys.length} metrics</p>
+          
+          <div class="private-notice">
+            <strong>Private Dashboard</strong>: This visualization shows only your data. No one else can see your measurements.
+          </div>
           
           <div class="chart-container">
             <div class="controls-header">Toggle metrics:</div>
@@ -242,7 +312,7 @@ class Server {
               <!-- Legend items will be inserted here by JavaScript -->
             </div>
             <div id="loading" class="loading" style="display: none;">Loading...</div>
-            <img src="/chart" alt="Data Timeline Chart" id="chart-image">
+            <img src="/chart/${token}" alt="Data Timeline Chart" id="chart-image">
           </div>
           
           <button class="refresh-button" onclick="refreshChart()">Refresh Chart</button>
@@ -264,6 +334,9 @@ class Server {
           </div>
           
           <script>
+            // Store user token
+            const userToken = '${token}';
+            
             // Color generation function
             function generateColor(index) {
               const hue = (index * 137) % 360; // Golden angle approximation
@@ -285,7 +358,7 @@ class Server {
             }
             
             function loadData() {
-              return fetch('/data')
+              return fetch('/data/' + userToken)
                 .then(response => response.json())
                 .then(data => {
                   allData = data;
@@ -377,7 +450,7 @@ class Server {
               };
               
               // Start loading the new image
-              newImage.src = \`/chart\${params}&t=\${new Date().getTime()}\`;
+              newImage.src = \`/chart/\${userToken}\${params}&t=\${new Date().getTime()}\`;
             }
             
             function populateTable(data) {
@@ -490,10 +563,12 @@ class Server {
   }
   
   /**
-   * Gets the chart URL
+   * Gets the chart URL for a specific user
+   * @param userId The Telegram user ID
    */
-  public getChartUrl(): string {
-    return `${this.host}/view`;
+  public getUserChartUrl(userId: number): string {
+    const token = this.getUserToken(userId);
+    return `${this.host}/view/${token}`;
   }
 }
 

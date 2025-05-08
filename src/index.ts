@@ -27,6 +27,12 @@ const bot = new Telegraf(BOT_TOKEN);
 
 // Welcome message
 bot.start((ctx) => {
+  const userId = ctx.from?.id;
+  if (!userId) {
+    ctx.reply('Error: Could not identify user.');
+    return;
+  }
+  
   ctx.reply(
     'Welcome to the Data Graph Bot!\n\n' +
     'Send me data in one of these formats:\n\n' +
@@ -41,7 +47,7 @@ bot.start((ctx) => {
     'DATE: YYYY-MM-DD\n' +
     'key1 value1\n' +
     'key2 value2\n\n' +
-    'I will create a timeline graph for your data.'
+    'I will create a timeline graph for your data. Your data is private and can only be viewed by you.'
   );
 });
 
@@ -67,33 +73,52 @@ bot.help((ctx) => {
     'key1 value1\n\n' +
     '3. I will store your data and plot it on a timeline.\n\n' +
     'Commands:\n' +
-    '/chart - Get the latest chart URL\n' +
-    '/clear - Clear all stored data\n' +
-    '/help - Show this help message'
+    '/chart - Get your personal chart URL\n' +
+    '/clear - Clear all your stored data\n' +
+    '/help - Show this help message\n\n' +
+    'Your data is private and only visible to you.'
   );
 });
 
 // Chart command
 bot.command('chart', (ctx) => {
-  const data = dataService.getAllData();
+  const userId = ctx.from?.id;
+  if (!userId) {
+    ctx.reply('Error: Could not identify user.');
+    return;
+  }
+  
+  const data = dataService.getUserData(userId);
   
   if (data.length === 0) {
     ctx.reply('No data available yet. Send me some data first!');
     return;
   }
   
-  ctx.reply(`You can view the chart here: ${server.getChartUrl()}`);
+  ctx.reply(`You can view your personal chart here: ${server.getUserChartUrl(userId)}\n\nThis link only shows your data and is private to you.`);
 });
 
 // Clear command
 bot.command('clear', (ctx) => {
-  dataService.clearData();
-  ctx.reply('All data has been cleared.');
+  const userId = ctx.from?.id;
+  if (!userId) {
+    ctx.reply('Error: Could not identify user.');
+    return;
+  }
+  
+  dataService.clearUserData(userId);
+  ctx.reply('All your data has been cleared.');
 });
 
 // Handle incoming messages
 bot.on(message('text'), (ctx) => {
   try {
+    const userId = ctx.from?.id;
+    if (!userId) {
+      ctx.reply('Error: Could not identify user.');
+      return;
+    }
+    
     const text = ctx.message.text;
     
     // Skip if it's a command
@@ -109,8 +134,13 @@ bot.on(message('text'), (ctx) => {
       return;
     }
     
+    // Add user ID to each data point
+    parsedData.forEach(item => {
+      item.userId = userId;
+    });
+    
     // Store the data
-    dataService.addData(parsedData);
+    dataService.addData(parsedData, userId);
     
     // Generate response
     const keys = parsedData.map(item => `"${item.key}"`).join(', ');
@@ -128,7 +158,7 @@ bot.on(message('text'), (ctx) => {
       }
     }
     
-    message += `View the updated chart: ${server.getChartUrl()}`;
+    message += `View your personal chart: ${server.getUserChartUrl(userId)}\n\nThis link only shows your data and is private to you.`;
     
     ctx.reply(message);
   } catch (error: any) {
