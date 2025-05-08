@@ -356,12 +356,35 @@ class Server {
       }
       
       // Convert dates to strings for better JSON serialization
-      const formattedData = data.map(point => ({
-        ...point,
-        timestamp: point.timestamp.toISOString(),
-        formattedDate: point.timestamp.toLocaleDateString(),
-        formattedTime: point.timestamp.toLocaleTimeString()
-      }));
+      const formattedData = data.map(point => {
+        // Ensure timestamp is a Date object
+        let timestamp;
+        let formattedDate;
+        let formattedTime;
+        
+        try {
+          if (!(point.timestamp instanceof Date)) {
+            timestamp = new Date(point.timestamp);
+          } else {
+            timestamp = point.timestamp;
+          }
+          
+          formattedDate = timestamp.toLocaleDateString();
+          formattedTime = timestamp.toLocaleTimeString();
+        } catch(e) {
+          console.error('Error formatting timestamp:', e);
+          timestamp = new Date(); // Fallback to current date
+          formattedDate = 'Unknown';
+          formattedTime = 'Unknown';
+        }
+        
+        return {
+          ...point,
+          timestamp: timestamp.toISOString(),
+          formattedDate,
+          formattedTime
+        };
+      });
       
       res.json(formattedData);
     } catch (error) {

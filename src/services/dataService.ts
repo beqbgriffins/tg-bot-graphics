@@ -96,7 +96,20 @@ class DataService {
     });
     
     // Sort by timestamp (oldest first)
-    return result.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+    return result.sort((a, b) => {
+      // Ensure timestamps are Date objects
+      const getTime = (timestamp: any): number => {
+        if (timestamp instanceof Date) {
+          return timestamp.getTime();
+        } else if (typeof timestamp === 'string') {
+          return new Date(timestamp).getTime();
+        } else {
+          return 0; // Fallback for invalid timestamps
+        }
+      };
+      
+      return getTime(a.timestamp) - getTime(b.timestamp);
+    });
   }
   
   /**
@@ -206,7 +219,7 @@ class DataService {
    */
   private loadData(): void {
     try {
-      // Load user data store if file exists
+      // Handle Date objects during deserialization
       if (fs.existsSync(this.dataFilePath)) {
         const dataJson = fs.readFileSync(this.dataFilePath, 'utf8');
         this.userDataStore = JSON.parse(dataJson, (key, value) => {
@@ -216,6 +229,9 @@ class DataService {
           }
           return value;
         });
+        
+        // Additional pass to ensure all timestamps are Date objects
+        this.migrateTimestamps();
         
         console.log('Loaded user data from disk');
       }
@@ -372,6 +388,43 @@ class DataService {
   public getChartGroup(userId: number, groupId: string): ChartGroup | undefined {
     const preferences = this.getUserPreferences(userId);
     return preferences.chartGroups.find(g => g.id === groupId);
+  }
+  
+  /**
+   * Migrates any string timestamps to proper Date objects
+   * Called during data loading to ensure all timestamps are Date objects
+   */
+  private migrateTimestamps(): void {
+    try {
+      // Iterate through all user data
+      for (const userId in this.userDataStore) {
+        const userDataSet = this.userDataStore[userId];
+        
+        // Iterate through each metric
+        for (const key in userDataSet) {
+          const dataSet = userDataSet[key];
+          
+          // Convert each timestamp to a Date object if it's not already
+          for (let i = 0; i < dataSet.timestamps.length; i++) {
+            const timestamp = dataSet.timestamps[i];
+            
+            if (!(timestamp instanceof Date)) {
+              // Try to convert string to Date
+              try {
+                dataSet.timestamps[i] = new Date(timestamp);
+              } catch (e) {
+                // If conversion fails, use current date as fallback
+                console.error(`Failed to convert timestamp for user ${userId}, metric ${key} at index ${i}. Using current date as fallback.`);
+                dataSet.timestamps[i] = new Date();
+              }
+            }
+          }
+        }
+      }
+      console.log('Timestamp migration complete');
+    } catch (error) {
+      console.error('Error during timestamp migration:', error);
+    }
   }
   
   /**
