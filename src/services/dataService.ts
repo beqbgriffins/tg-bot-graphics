@@ -478,6 +478,94 @@ class DataService {
   }
   
   /**
+   * Deletes a specific data point
+   * @param userId The Telegram user ID
+   * @param key The metric key
+   * @param timestampStr The timestamp as string or Date object
+   * @returns True if deleted, false if not found
+   */
+  public deleteDataPoint(userId: number, key: string, timestampStr: string | Date): boolean {
+    // Check if user has data
+    if (!this.userDataStore[userId] || !this.userDataStore[userId][key]) {
+      return false;
+    }
+    
+    const dataSet = this.userDataStore[userId][key];
+    let timestamp: Date;
+    
+    if (timestampStr instanceof Date) {
+      timestamp = timestampStr;
+    } else {
+      timestamp = new Date(timestampStr);
+    }
+    
+    // Find the index of the data point
+    let found = false;
+    for (let i = 0; i < dataSet.timestamps.length; i++) {
+      const currentTimestamp = dataSet.timestamps[i];
+      
+      if (currentTimestamp instanceof Date && 
+          currentTimestamp.getTime() === timestamp.getTime()) {
+        // Remove the data point
+        dataSet.values.splice(i, 1);
+        dataSet.timestamps.splice(i, 1);
+        dataSet.userIds.splice(i, 1);
+        found = true;
+        break;
+      }
+    }
+    
+    // If data set is now empty, remove it
+    if (found && dataSet.values.length === 0) {
+      delete this.userDataStore[userId][key];
+    }
+    
+    // If user's data store is now empty, remove it
+    if (found && Object.keys(this.userDataStore[userId]).length === 0) {
+      delete this.userDataStore[userId];
+    }
+    
+    // Save changes to disk if found
+    if (found) {
+      this.saveData();
+    }
+    
+    return found;
+  }
+  
+  /**
+   * Get the latest data points for each key for a specific user
+   * @param userId The Telegram user ID
+   * @returns Array of DataPoint objects with the latest value for each key
+   */
+  public getUserLatestDataPoints(userId: number): DataPoint[] {
+    const result: DataPoint[] = [];
+    
+    // If user doesn't have data, return empty array
+    if (!this.userDataStore[userId]) {
+      return result;
+    }
+    
+    const dataStore = this.userDataStore[userId];
+    
+    Object.keys(dataStore).forEach(key => {
+      const dataSet = dataStore[key];
+      if (dataSet.values.length > 0) {
+        // Get the last entry
+        const lastIndex = dataSet.values.length - 1;
+        result.push({
+          key,
+          value: dataSet.values[lastIndex],
+          timestamp: dataSet.timestamps[lastIndex],
+          userId: dataSet.userIds[lastIndex]
+        });
+      }
+    });
+    
+    return result;
+  }
+  
+  /**
    * Updates user's favorite metrics based on usage
    * @param userId The Telegram user ID
    * @param keys The keys the user just used
