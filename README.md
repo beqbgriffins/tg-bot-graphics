@@ -22,11 +22,20 @@ A Telegram bot that processes messages containing measurement data and visualize
 - Private chart URLs that only display user-specific data
 
 ### Interactive Visualization
+- Individual metric charts with enlargement on click
+- Custom metric groups with persistent names
+- Data management with selective deletion capabilities
 - Timeline charts with automatic date formatting
 - Interactive legend to toggle metrics on/off
 - Responsive design works on mobile and desktop
-- Data table with chronological sorting
+- Data table with chronological sorting and data deletion
 - Auto-refresh with latest measurements
+
+### Data Management
+- Delete individual data points from the data table
+- "Delete All Data" button to clear all stored data
+- Create and manage custom metric groups
+- Persistent storage maintains data between server restarts
 
 ## Setup
 
@@ -102,13 +111,33 @@ Chest 117.8
 - `/chart` - Get your personal chart URL
 - `/clear` - Clear all your stored data
 
+### Web Interface Features
+
+After accessing your personal chart URL from the `/chart` command, you can:
+
+1. **View Individual Metrics**: 
+   - See separate charts for each metric
+   - Click on any chart to enlarge it for better visibility
+   - Click outside the enlarged chart to return to the overview
+
+2. **Create Metric Groups**:
+   - Combine related metrics into named groups
+   - Group names persist between sessions
+   - View group charts to see related metrics together
+
+3. **Manage Your Data**:
+   - View all data points in a chronological table
+   - Delete individual data points as needed
+   - Use the "Delete All Data" button to clear everything
+
 ## Technical Details
 
 - **Backend**: TypeScript, Express, Node.js
 - **Bot Framework**: Telegraf
 - **Visualization**: Chart.js, node-canvas
 - **Security**: Crypto-based token system for user authentication
-- **Storage**: In-memory data storage with user separation
+- **Storage**: Persistent file-based storage with user separation
+- **Session Management**: Limited token storage (last 3 per user)
 
 ## Deployment
 
@@ -117,6 +146,16 @@ See `DEPLOYMENT.md` for detailed instructions on deploying to a DigitalOcean VPS
 Administration scripts are included:
 - `deploy.sh` - Initial setup and deployment
 - `bot-admin.sh` - Day-to-day management
+
+## Recent Improvements
+
+- **Chart Enlargement**: Click on any individual metric chart to get an enlarged view
+- **Data Management**: Delete individual data points or all data from the web interface
+- **Persistent Groups**: Named metric groups that maintain their names between sessions
+- **Improved Storage**: Data persistence across server restarts
+- **Session Management**: Optimized token storage (keeping only last 3 per user)
+- **Better Error Handling**: Improved timestamp and data format handling
+- **Enhanced UI**: More intuitive interface with clear user instructions
 
 ## License
 
