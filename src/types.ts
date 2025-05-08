@@ -1,22 +1,8 @@
-import { Context, Scenes } from 'telegraf';
-
-// DataPoint interface
 export interface DataPoint {
   key: string;
   value: number;
   timestamp: Date;
   userId?: number; // Add user ID to data point
-}
-
-// Define custom scene session
-interface DeleteSceneSession extends Scenes.SceneSessionData {
-  deletePoints: DataPoint[];
-}
-
-// Define custom scene context
-export interface BotContext extends Context {
-  scene: Scenes.SceneContextScene<BotContext, DeleteSceneSession>;
-  session: DeleteSceneSession;
 }
 
 export interface DataSet {

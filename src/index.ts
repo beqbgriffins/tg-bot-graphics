@@ -1,10 +1,9 @@
 import dotenv from 'dotenv';
-import { Telegraf, Scenes } from 'telegraf';
+import { Telegraf } from 'telegraf';
 import { message } from 'telegraf/filters';
 import { parseMessage } from './utils/parser';
 import { dataService } from './services/dataService';
 import { Server } from './server';
-import { BotContext } from './types';
 
 // Load environment variables
 dotenv.config();
@@ -24,108 +23,7 @@ const server = new Server(PORT, HOST);
 server.start();
 
 // Create the bot
-const bot = new Telegraf<BotContext>(BOT_TOKEN);
-
-// Create a scene for data deletion
-const deleteScene = new Scenes.BaseScene<BotContext>('delete');
-
-// Scene entry point
-deleteScene.enter(async (ctx) => {
-  const userId = ctx.from?.id;
-  if (!userId) {
-    await ctx.reply('Error: Could not identify user.');
-    return ctx.scene.leave();
-  }
-  
-  // Get the latest data points for each key
-  const latestPoints = dataService.getUserLatestDataPoints(userId);
-  
-  if (latestPoints.length === 0) {
-    await ctx.reply('You have no data to delete.');
-    return ctx.scene.leave();
-  }
-  
-  // Sort by key name
-  latestPoints.sort((a, b) => a.key.localeCompare(b.key));
-  
-  // Create a message with a list of data points
-  let message = 'Your latest data points:\n\n';
-  
-  latestPoints.forEach((point, index) => {
-    const date = point.timestamp.toLocaleDateString();
-    const time = point.timestamp.toLocaleTimeString();
-    message += `${index + 1}. ${point.key}: ${point.value} (${date} ${time})\n`;
-  });
-  
-  message += '\nTo delete a data point, reply with the number from the list.';
-  message += '\nTo delete all data, reply with "all".';
-  message += '\nTo cancel, reply with "cancel".';
-  
-  // Store the list of data points in the session
-  ctx.scene.session.deletePoints = latestPoints;
-  
-  // Send the message
-  await ctx.reply(message);
-});
-
-// Handle user input in the delete scene
-deleteScene.on('text', async (ctx) => {
-  const text = ctx.message.text.trim();
-  const userId = ctx.from?.id;
-  
-  if (!userId) {
-    await ctx.reply('Error: Could not identify user.');
-    return ctx.scene.leave();
-  }
-  
-  // Check for cancel command
-  if (text.toLowerCase() === 'cancel') {
-    await ctx.reply('Deletion cancelled.');
-    return ctx.scene.leave();
-  }
-  
-  const points = ctx.scene.session.deletePoints;
-  
-  if (!points) {
-    await ctx.reply('Error: No data points found. Please try again.');
-    return ctx.scene.leave();
-  }
-  
-  // If the user wants to delete all data
-  if (text.toLowerCase() === 'all') {
-    dataService.clearUserData(userId);
-    await ctx.reply('All your data has been deleted.');
-    return ctx.scene.leave();
-  }
-  
-  // Try to parse the number
-  const index = parseInt(text, 10) - 1;
-  
-  if (isNaN(index) || index < 0 || index >= points.length) {
-    await ctx.reply('Invalid number. Please reply with a number from the list, "all", or "cancel".');
-    return;
-  }
-  
-  // Delete the selected data point
-  const point = points[index];
-  const deleted = dataService.deleteDataPoint(userId, point.key, point.timestamp);
-  
-  if (deleted) {
-    await ctx.reply(`Deleted data point: ${point.key}: ${point.value}`);
-  } else {
-    await ctx.reply('Failed to delete data point. It may have already been deleted.');
-  }
-  
-  return ctx.scene.leave();
-});
-
-// Create scene manager
-const stage = new Scenes.Stage<BotContext>([deleteScene]);
-
-// Register session middleware
-import { session } from 'telegraf';
-bot.use(session());
-bot.use(stage.middleware());
+const bot = new Telegraf(BOT_TOKEN);
 
 // Welcome message
 bot.start((ctx) => {
@@ -177,7 +75,6 @@ bot.help((ctx) => {
     'Commands:\n' +
     '/chart - Get your personal chart URL\n' +
     '/clear - Clear all your stored data\n' +
-    '/delete - List recent data points for deletion\n' +
     '/help - Show this help message\n\n' +
     'Your data is private and only visible to you.'
   );
@@ -211,11 +108,6 @@ bot.command('clear', (ctx) => {
   
   dataService.clearUserData(userId);
   ctx.reply('All your data has been cleared.');
-});
-
-// Delete command - this will show a list of recent data points that can be deleted
-bot.command('delete', (ctx) => {
-  ctx.scene.enter('delete');
 });
 
 // Handle incoming messages
