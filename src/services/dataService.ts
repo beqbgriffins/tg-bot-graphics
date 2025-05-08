@@ -148,7 +148,7 @@ class DataService {
     if (!this.userPreferences.has(userId)) {
       this.userPreferences.set(userId, {
         chartGroups: [],
-        defaultView: 'combined',
+        defaultView: 'individual',
         favoriteMetrics: []
       });
     }

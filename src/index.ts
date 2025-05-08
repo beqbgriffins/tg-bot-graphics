@@ -47,7 +47,7 @@ bot.start((ctx) => {
     'DATE: YYYY-MM-DD\n' +
     'key1 value1\n' +
     'key2 value2\n\n' +
-    'I will create a timeline graph for your data. Your data is private and can only be viewed by you.'
+    'I will create individual charts for your data. Your data is private and can only be viewed by you.'
   );
 });
 
@@ -71,7 +71,7 @@ bot.help((ctx) => {
     'Or with DD.MM.YYYY format:\n' +
     'DATE: DD.MM.YYYY\n' +
     'key1 value1\n\n' +
-    '3. I will store your data and plot it on a timeline.\n\n' +
+    '3. I will store your data and create individual charts for each metric.\n\n' +
     'Commands:\n' +
     '/chart - Get your personal chart URL\n' +
     '/clear - Clear all your stored data\n' +

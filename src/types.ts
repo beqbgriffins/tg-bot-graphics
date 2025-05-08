@@ -36,7 +36,7 @@ export interface ChartGroup {
 // User preferences
 export interface UserPreferences {
   chartGroups: ChartGroup[];
-  defaultView: 'combined' | 'individual' | 'groups';
+  defaultView: 'individual' | 'groups' | 'data';
   favoriteMetrics: string[]; // Keys that the user frequently views
 }
 

@@ -690,28 +690,13 @@ class Server {
           </div>
           
           <div class="tabs">
-            <div class="tab active" data-tab="combined">Combined Chart</div>
-            <div class="tab" data-tab="individual">Individual Metrics</div>
+            <div class="tab active" data-tab="individual">Individual Metrics</div>
             <div class="tab" data-tab="groups">Metric Groups</div>
             <div class="tab" data-tab="data">Data Table</div>
           </div>
           
-          <!-- Combined Chart Tab -->
-          <div class="tab-content active" id="combined-tab">
-            <div class="chart-container">
-              <div class="controls-header">Toggle metrics:</div>
-              <div class="legend" id="legend">
-                <!-- Legend items will be inserted here by JavaScript -->
-              </div>
-              <div id="loading" class="loading" style="display: none;">Loading...</div>
-              <img src="/chart/${token}" alt="Combined Data Timeline Chart" id="chart-image">
-            </div>
-            
-            <button class="refresh-button" onclick="refreshChart()">Refresh Chart</button>
-          </div>
-          
           <!-- Individual Metrics Tab -->
-          <div class="tab-content" id="individual-tab">
+          <div class="tab-content active" id="individual-tab">
             <h2>Individual Metric Charts</h2>
             <p>Each chart shows the progression of a single metric over time.</p>
             
@@ -808,8 +793,7 @@ class Server {
               return \`hsl(\${hue}, 70%, 60%)\`;
             }
             
-            // Store hidden keys
-            let hiddenKeys = [];
+            // Store all data
             let allData = [];
             
             // Load data on page load
@@ -819,9 +803,8 @@ class Server {
               // Set up tabs
               setupTabs();
               
-              // Load data for combined chart and table
+              // Load data for table
               loadData().then(() => {
-                createLegend();
                 populateTable(allData);
               });
             }
@@ -861,96 +844,14 @@ class Server {
                 });
             }
             
-            function createLegend() {
-              const legendContainer = document.getElementById('legend');
-              legendContainer.innerHTML = '';
-              
-              // Get unique keys
-              const uniqueKeys = [...new Set(allData.map(item => item.key))].sort();
-              
-              // Create legend items
-              uniqueKeys.forEach((key, index) => {
-                const color = generateColor(index);
-                
-                const legendItem = document.createElement('div');
-                legendItem.className = 'legend-item';
-                legendItem.dataset.key = key;
-                if (hiddenKeys.includes(key)) {
-                  legendItem.classList.add('disabled');
-                }
-                
-                const colorBox = document.createElement('div');
-                colorBox.className = 'legend-color';
-                colorBox.style.backgroundColor = color;
-                
-                const label = document.createElement('div');
-                label.className = 'legend-label';
-                label.textContent = key;
-                
-                legendItem.appendChild(colorBox);
-                legendItem.appendChild(label);
-                
-                // Add click event
-                legendItem.addEventListener('click', () => {
-                  toggleKey(key, legendItem);
-                });
-                
-                legendContainer.appendChild(legendItem);
-              });
-            }
-            
-            function toggleKey(key, element) {
-              const index = hiddenKeys.indexOf(key);
-              if (index === -1) {
-                // Hide this key
-                hiddenKeys.push(key);
-                element.classList.add('disabled');
-              } else {
-                // Show this key
-                hiddenKeys.splice(index, 1);
-                element.classList.remove('disabled');
-              }
-              
-              // Update chart
-              updateChart();
-              
-              // Update table
-              populateTable(allData);
-            }
-            
-            function updateChart() {
-              const img = document.getElementById('chart-image');
-              const loading = document.getElementById('loading');
-              
-              // Show loading indicator
-              loading.style.display = 'flex';
-              
-              // Generate query params
-              const params = hiddenKeys.length > 0 ? \`?hidden=\${hiddenKeys.join(',')}\` : '';
-              
-              // Create a new image element
-              const newImage = new Image();
-              newImage.onload = function() {
-                // When new image is loaded, replace the old one and hide loading
-                img.src = newImage.src;
-                loading.style.display = 'none';
-              };
-              newImage.onerror = function() {
-                // Hide loading on error
-                loading.style.display = 'none';
-                alert('Error loading chart');
-              };
-              
-              // Start loading the new image
-              newImage.src = \`/chart/\${userToken}\${params}&t=\${new Date().getTime()}\`;
-            }
+            // Functions for combined chart have been removed
             
             function populateTable(data) {
               const tableBody = document.getElementById('data-table-body');
               tableBody.innerHTML = '';
               
-              // Filter data by visible keys
-              const filteredData = data.filter(point => !hiddenKeys.includes(point.key));
+              // Use all data
+              const filteredData = data;
               
               // Group data by date
               const dataByDate = {};
@@ -1021,17 +922,8 @@ class Server {
             }
             
             function refreshChart() {
-              // Show loading indicator
-              document.getElementById('loading').style.display = 'flex';
-              
               // Reload data from server
               loadData().then(() => {
-                // Update legend
-                createLegend();
-                
-                // Update chart
-                updateChart();
-                
                 // Update table
                 populateTable(allData);
                 
