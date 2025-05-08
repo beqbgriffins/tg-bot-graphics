@@ -2,6 +2,8 @@ import express, { Request, Response } from 'express';
 import { dataService } from './services/dataService';
 import { chartService } from './services/chartService';
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 
 class Server {
   private app = express();
@@ -10,10 +12,26 @@ class Server {
   private userTokens: Map<number, string> = new Map(); // Map user IDs to secure tokens
   // We'll keep this for backward compatibility, but migrate to dataService storage
   private userGroups: Map<number, Map<string, string[]>> = new Map(); // Store user-defined chart groups
+  private persistenceDir: string = path.join(process.cwd(), 'data');
+  private tokensFilePath: string;
+  private groupsFilePath: string;
   
   constructor(port: number, host: string) {
     this.port = port;
     this.host = host;
+    
+    // Set up persistence paths
+    if (!fs.existsSync(this.persistenceDir)) {
+      fs.mkdirSync(this.persistenceDir, { recursive: true });
+    }
+    
+    this.tokensFilePath = path.join(this.persistenceDir, 'user_tokens.json');
+    this.groupsFilePath = path.join(this.persistenceDir, 'legacy_groups.json');
+    
+    // Load saved data
+    this.loadTokens();
+    this.loadGroups();
+    
     this.setup();
   }
   
@@ -59,7 +77,153 @@ class Server {
     // Generate a new token
     const token = crypto.randomBytes(16).toString('hex');
     this.userTokens.set(userId, token);
+    
+    // Save tokens to disk
+    this.saveTokens();
+    
     return token;
+  }
+  
+  /**
+   * Save user tokens to disk
+   */
+  private saveTokens(): void {
+    try {
+      // Convert Map to Object for serialization
+      const tokensObj: Record<string, string> = {};
+      this.userTokens.forEach((token, userId) => {
+        tokensObj[userId.toString()] = token;
+      });
+      
+      fs.writeFileSync(
+        this.tokensFilePath,
+        JSON.stringify(tokensObj),
+        'utf8'
+      );
+      
+      console.log('User tokens saved to disk');
+    } catch (error) {
+      console.error('Error saving tokens to disk:', error);
+    }
+  }
+  
+  /**
+   * Load user tokens from disk
+   */
+  private loadTokens(): void {
+    try {
+      if (fs.existsSync(this.tokensFilePath)) {
+        const tokensJson = fs.readFileSync(this.tokensFilePath, 'utf8');
+        const tokensObj: Record<string, string> = JSON.parse(tokensJson);
+        
+        // Convert Object to Map
+        Object.entries(tokensObj).forEach(([userIdStr, token]) => {
+          const userId = parseInt(userIdStr, 10);
+          this.userTokens.set(userId, token);
+        });
+        
+        console.log('Loaded user tokens from disk');
+      }
+    } catch (error) {
+      console.error('Error loading tokens from disk:', error);
+      // Reset to empty Map in case of error
+      this.userTokens = new Map();
+    }
+  }
+  
+  /**
+   * Save legacy user groups to disk
+   */
+  private saveGroups(): void {
+    try {
+      // Convert nested Maps to Objects for serialization
+      const groupsObj: Record<string, Record<string, string[]>> = {};
+      
+      this.userGroups.forEach((groupMap, userId) => {
+        const userGroups: Record<string, string[]> = {};
+        
+        groupMap.forEach((metrics, groupId) => {
+          userGroups[groupId] = metrics;
+        });
+        
+        groupsObj[userId.toString()] = userGroups;
+      });
+      
+      fs.writeFileSync(
+        this.groupsFilePath,
+        JSON.stringify(groupsObj),
+        'utf8'
+      );
+      
+      console.log('Legacy groups saved to disk');
+    } catch (error) {
+      console.error('Error saving legacy groups to disk:', error);
+    }
+  }
+  
+  /**
+   * Load legacy user groups from disk
+   */
+  private loadGroups(): void {
+    try {
+      if (fs.existsSync(this.groupsFilePath)) {
+        const groupsJson = fs.readFileSync(this.groupsFilePath, 'utf8');
+        const groupsObj: Record<string, Record<string, string[]>> = JSON.parse(groupsJson);
+        
+        // Convert Objects to Maps
+        Object.entries(groupsObj).forEach(([userIdStr, userGroups]) => {
+          const userId = parseInt(userIdStr, 10);
+          const groupMap = new Map<string, string[]>();
+          
+          Object.entries(userGroups).forEach(([groupId, metrics]) => {
+            groupMap.set(groupId, metrics);
+          });
+          
+          this.userGroups.set(userId, groupMap);
+          
+          // Migrate legacy groups to dataService
+          this.migrateUserGroups(userId);
+        });
+        
+        console.log('Loaded legacy groups from disk');
+      }
+    } catch (error) {
+      console.error('Error loading legacy groups from disk:', error);
+      // Reset to empty Map in case of error
+      this.userGroups = new Map();
+    }
+  }
+  
+  /**
+   * Migrate legacy groups to dataService
+   * @param userId The user ID to migrate groups for
+   */
+  private migrateUserGroups(userId: number): void {
+    try {
+      const userGroups = this.userGroups.get(userId);
+      if (!userGroups || userGroups.size === 0) {
+        return;
+      }
+      
+      // Get existing groups from dataService
+      const existingGroups = dataService.getUserChartGroups(userId);
+      const existingGroupIds = existingGroups.map(g => g.id);
+      
+      // Migrate each group
+      userGroups.forEach((metrics, groupId) => {
+        // Skip if group already exists in dataService
+        if (existingGroupIds.includes(groupId)) {
+          return;
+        }
+        
+        // Create group in dataService
+        dataService.createChartGroup(userId, groupId, metrics);
+      });
+      
+      console.log(`Migrated legacy groups for user ${userId}`);
+    } catch (error) {
+      console.error(`Error migrating legacy groups for user ${userId}:`, error);
+    }
   }
   
   /**
@@ -75,14 +239,6 @@ class Server {
     }
     return undefined;
   }
-  
-  /**
-   * Create a new group for a user
-   * @param userId User ID
-   * @param groupName Group name
-   * @param metrics Array of metrics to include
-   * @returns Group ID
-   */
   public createGroup(userId: number, groupName: string, metrics: string[]): string {
     // Initialize user's groups if needed
     if (!this.userGroups.has(userId)) {
@@ -94,6 +250,9 @@ class Server {
     
     // Store the group
     this.userGroups.get(userId)!.set(groupId, metrics);
+    
+    // Save changes to disk
+    this.saveGroups();
     
     return groupId;
   }
@@ -118,7 +277,14 @@ class Server {
       return false;
     }
     
-    return this.userGroups.get(userId)!.delete(groupId);
+    const deleted = this.userGroups.get(userId)!.delete(groupId);
+    
+    if (deleted) {
+      // Save changes to disk
+      this.saveGroups();
+    }
+    
+    return deleted;
   }
   
   /**
