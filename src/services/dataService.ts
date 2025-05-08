@@ -42,9 +42,18 @@ class DataService {
     const dataStore = this.userDataStore[userId];
     
     data.forEach(item => {
+      // Convert key to lowercase to make it case insensitive
+      const normalizedKey = item.key.toLowerCase();
+      
+      // Find if there's a matching key (case insensitive)
+      let existingKey = Object.keys(dataStore).find(k => k.toLowerCase() === normalizedKey);
+      
+      // Use the existing key if found, otherwise use the original key
+      const key = existingKey || item.key;
+      
       // Initialize the key if it doesn't exist
-      if (!dataStore[item.key]) {
-        dataStore[item.key] = {
+      if (!dataStore[key]) {
+        dataStore[key] = {
           values: [],
           timestamps: [],
           userIds: []
@@ -55,9 +64,9 @@ class DataService {
       const timestamp = item.timestamp || defaultTimestamp;
       
       // Add the new data point
-      dataStore[item.key].values.push(item.value);
-      dataStore[item.key].timestamps.push(timestamp);
-      dataStore[item.key].userIds.push(userId);
+      dataStore[key].values.push(item.value);
+      dataStore[key].timestamps.push(timestamp);
+      dataStore[key].userIds.push(userId);
     });
     
     // Update user's favorite metrics
@@ -436,11 +445,21 @@ class DataService {
    */
   public deleteDataPoint(userId: number, key: string, timestampStr: string | Date): boolean {
     // Check if user has data
-    if (!this.userDataStore[userId] || !this.userDataStore[userId][key]) {
+    if (!this.userDataStore[userId]) {
       return false;
     }
     
-    const dataSet = this.userDataStore[userId][key];
+    // Find the normalized key (case insensitive)
+    const normalizedKey = key.toLowerCase();
+    const existingKey = Object.keys(this.userDataStore[userId])
+      .find(k => k.toLowerCase() === normalizedKey);
+    
+    // If key not found, return false
+    if (!existingKey) {
+      return false;
+    }
+    
+    const dataSet = this.userDataStore[userId][existingKey];
     let timestamp: Date;
     
     if (timestampStr instanceof Date) {
@@ -467,7 +486,7 @@ class DataService {
     
     // If data set is now empty, remove it
     if (found && dataSet.values.length === 0) {
-      delete this.userDataStore[userId][key];
+      delete this.userDataStore[userId][existingKey];
     }
     
     // If user's data store is now empty, remove it

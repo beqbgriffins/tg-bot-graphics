@@ -143,6 +143,18 @@ class ChartService {
           legend: {
             display: true,
             position: 'top'
+          },
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                const label = context.dataset.label || '';
+                const value = context.parsed.y;
+                return `${label}: ${value}`;
+              },
+              title: function(tooltipItems) {
+                return tooltipItems[0].label; // This is the date/time from the x-axis
+              }
+            }
           }
         }
       }
@@ -229,6 +241,17 @@ class ChartService {
           },
           legend: {
             display: false // No need for legend in single metric charts
+          },
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                const value = context.parsed.y;
+                return `Value: ${value}`;
+              },
+              title: function(tooltipItems) {
+                return tooltipItems[0].label; // This is the date/time from the x-axis
+              }
+            }
           }
         }
       }
@@ -352,6 +375,18 @@ class ChartService {
           legend: {
             display: true,
             position: 'top'
+          },
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                const label = context.dataset.label || '';
+                const value = context.parsed.y;
+                return `${label}: ${value}`;
+              },
+              title: function(tooltipItems) {
+                return tooltipItems[0].label; // This is the date/time from the x-axis
+              }
+            }
           }
         }
       }
