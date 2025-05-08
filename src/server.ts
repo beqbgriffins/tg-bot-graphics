@@ -699,6 +699,40 @@ class Server {
               width: 90%;
               max-width: 1100px;
             }
+            .chart-overlay {
+              position: fixed;
+              top: 0;
+              left: 0;
+              right: 0;
+              bottom: 0;
+              background-color: rgba(0, 0, 0, 0.7);
+              display: flex;
+              justify-content: center;
+              align-items: center;
+              z-index: 2000;
+              display: none;
+            }
+            .chart-modal {
+              background-color: white;
+              border-radius: 8px;
+              padding: 20px;
+              box-shadow: 0 2px 20px rgba(0, 0, 0, 0.2);
+              max-width: 90%;
+              max-height: 90%;
+              overflow: auto;
+              position: relative;
+            }
+            .chart-modal img {
+              max-width: 100%;
+              max-height: 80vh;
+              display: block;
+            }
+            .chart-modal-title {
+              font-size: 18px;
+              font-weight: bold;
+              margin-bottom: 15px;
+              text-align: center;
+            }
             .chart-item {
               background-color: white;
               border-radius: 8px;
@@ -707,6 +741,11 @@ class Server {
               display: flex;
               flex-direction: column;
               align-items: center;
+              cursor: pointer;
+              transition: transform 0.2s;
+            }
+            .chart-item:hover {
+              transform: scale(1.02);
             }
             .chart-item-title {
               font-weight: bold;
@@ -1037,16 +1076,24 @@ class Server {
           <!-- Individual Metrics Tab -->
           <div class="tab-content active" id="individual-tab">
             <h2>Individual Metric Charts</h2>
-            <p>Each chart shows the progression of a single metric over time.</p>
+            <p>Each chart shows the progression of a single metric over time. Click on a chart to enlarge it.</p>
             
             <div class="chart-grid" id="metric-charts">
               <!-- Individual metric charts will be inserted here -->
               ${allKeys.map(key => `
-                <div class="chart-item">
+                <div class="chart-item" data-metric="${key}">
                   <div class="chart-item-title">${key}</div>
                   <img src="/chart/${token}/metric/${encodeURIComponent(key)}?t=${Date.now()}" alt="${key} Chart">
                 </div>
               `).join('')}
+            </div>
+            
+            <!-- Chart Overlay for Enlarged View -->
+            <div class="chart-overlay" id="chart-overlay">
+              <div class="chart-modal">
+                <div class="chart-modal-title" id="chart-modal-title"></div>
+                <img id="chart-modal-image" src="" alt="Enlarged Chart">
+              </div>
             </div>
           </div>
           
@@ -1154,7 +1201,7 @@ class Server {
             let allData = [];
             
             // Load data on page load
-            window.addEventListener('DOMContentLoaded', initializePage);
+            //window.addEventListener('DOMContentLoaded', initializePage);
             
             function initializePage() {
               // Set up tabs
@@ -1307,6 +1354,11 @@ class Server {
                 const src = img.src.split('?')[0];
                 img.src = src + '?t=' + new Date().getTime();
               });
+              
+              // Re-initialize chart enlargement if needed
+              if (typeof setupChartEnlargement === 'function') {
+                setupChartEnlargement();
+              }
             }
             
             function createGroup() {
@@ -1438,6 +1490,43 @@ class Server {
             
             // Auto-refresh every 5 minutes
             setInterval(refreshChart, 300000);
+            
+            // Chart enlargement functionality
+            function setupChartEnlargement() {
+              const chartItems = document.querySelectorAll('.chart-item');
+              const chartOverlay = document.getElementById('chart-overlay');
+              const chartModalImage = document.getElementById('chart-modal-image');
+              const chartModalTitle = document.getElementById('chart-modal-title');
+              
+              // Set up click handlers for each chart
+              chartItems.forEach(item => {
+                item.addEventListener('click', function() {
+                  const metricName = this.getAttribute('data-metric');
+                  const imgSrc = this.querySelector('img').src;
+                  
+                  // Set the modal content
+                  chartModalTitle.textContent = metricName;
+                  chartModalImage.src = imgSrc;
+                  
+                  // Show the overlay
+                  chartOverlay.style.display = 'flex';
+                });
+              });
+              
+              // Close the overlay when clicking outside the chart modal
+              chartOverlay.addEventListener('click', function(event) {
+                // Check if the click was directly on the overlay (not on the modal)
+                if (event.target === chartOverlay) {
+                  chartOverlay.style.display = 'none';
+                }
+              });
+            }
+            
+            // Initialize chart enlargement when page loads
+            window.addEventListener('DOMContentLoaded', function() {
+              initializePage();
+              setupChartEnlargement();
+            });
             
             // Data deletion functions
             function confirmDeleteDataPoint(key, timestamp) {
