@@ -111,6 +111,10 @@ class ChartService {
       },
       options: {
         responsive: false,
+        interaction: {
+          mode: 'index',
+          intersect: false
+        },
         scales: {
           x: {
             display: true,
@@ -151,8 +155,8 @@ class ChartService {
                 const value = context.parsed.y;
                 return `${label}: ${value}`;
               },
-              title: function(tooltipItems) {
-                return tooltipItems[0].label; // This is the date/time from the x-axis
+              title: function(context) {
+                return context[0].label; // This is the date/time from the x-axis
               }
             }
           }
@@ -210,6 +214,10 @@ class ChartService {
       },
       options: {
         responsive: false,
+        interaction: {
+          mode: 'nearest',
+          intersect: true
+        },
         scales: {
           x: {
             display: true,
@@ -248,8 +256,8 @@ class ChartService {
                 const value = context.parsed.y;
                 return `Value: ${value}`;
               },
-              title: function(tooltipItems) {
-                return tooltipItems[0].label; // This is the date/time from the x-axis
+              title: function(context) {
+                return context[0].label; // This is the date/time from the x-axis
               }
             }
           }
@@ -343,6 +351,10 @@ class ChartService {
       },
       options: {
         responsive: false,
+        interaction: {
+          mode: 'index',
+          intersect: false
+        },
         scales: {
           x: {
             display: true,
@@ -383,8 +395,8 @@ class ChartService {
                 const value = context.parsed.y;
                 return `${label}: ${value}`;
               },
-              title: function(tooltipItems) {
-                return tooltipItems[0].label; // This is the date/time from the x-axis
+              title: function(context) {
+                return context[0].label; // This is the date/time from the x-axis
               }
             }
           }
