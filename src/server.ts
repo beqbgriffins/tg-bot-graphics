@@ -222,8 +222,16 @@ class Server {
           const userId = parseInt(userIdStr, 10);
           const groupMap = new Map<string, string[]>();
           
-          Object.entries(userGroups).forEach(([groupId, metrics]) => {
-            groupMap.set(groupId, metrics);
+          Object.entries(userGroups).forEach(([groupId, groupInfo]) => {
+            // Convert old format to new if needed
+            if (Array.isArray(groupInfo)) {
+              groupMap.set(groupId, {
+                name: groupId,
+                metrics: groupInfo
+              });
+            } else {
+              groupMap.set(groupId, groupInfo);
+            }
           });
           
           this.userGroups.set(userId, groupMap);
@@ -257,14 +265,18 @@ class Server {
       const existingGroupIds = existingGroups.map(g => g.id);
       
       // Migrate each group
-      userGroups.forEach((metrics, groupId) => {
+      userGroups.forEach((groupData, groupId) => {
         // Skip if group already exists in dataService
         if (existingGroupIds.includes(groupId)) {
           return;
         }
         
+        // Support both old and new format
+        const metrics = groupData.metrics || groupData;
+        const name = groupData.name || groupId;
+        
         // Create group in dataService
-        dataService.createChartGroup(userId, groupId, metrics);
+        dataService.createChartGroup(userId, name, Array.isArray(metrics) ? metrics : []);
       });
       
       console.log(`Migrated legacy groups for user ${userId}`);
@@ -295,8 +307,11 @@ class Server {
     // Generate a unique group ID
     const groupId = crypto.randomBytes(8).toString('hex');
     
-    // Store the group
-    this.userGroups.get(userId)!.set(groupId, metrics);
+    // Store the group with both name and metrics
+    this.userGroups.get(userId)!.set(groupId, {
+      name: groupName,
+      metrics: metrics
+    });
     
     // Save changes to disk
     this.saveGroups();
@@ -307,9 +322,9 @@ class Server {
   /**
    * Get all groups for a user
    * @param userId User ID
-   * @returns Map of group IDs to metric arrays
+   * @returns Map of group IDs to group objects
    */
-  public getUserGroups(userId: number): Map<string, string[]> {
+  public getUserGroups(userId: number): Map<string, any> {
     return this.userGroups.get(userId) || new Map();
   }
   
@@ -387,9 +402,10 @@ class Server {
       const groups = this.getUserGroups(userId);
       
       // Convert to array format for JSON
-      const groupsArray = Array.from(groups.entries()).map(([groupId, metrics]) => ({
+      const groupsArray = Array.from(groups.entries()).map(([groupId, groupData]) => ({
         groupId,
-        metrics,
+        groupName: groupData.name || groupId,
+        metrics: groupData.metrics || groupData,
         chartUrl: `${this.host}/chart/${token}/group/${groupId}`,
         viewUrl: `${this.host}/view/${token}?group=${groupId}`
       }));
@@ -526,12 +542,18 @@ class Server {
       
       // Get the group metrics
       const groups = this.getUserGroups(userId);
-      const metrics = groups.get(groupId);
+      const groupData = groups.get(groupId);
       
-      if (!metrics) {
+      if (!groupData) {
         res.status(404).send('Group not found');
         return;
       }
+      
+      // Support both old and new format
+      const metrics = Array.isArray(groupData.metrics) ? 
+                      groupData.metrics : 
+                      (Array.isArray(groupData) ? groupData : []);
+      const groupName = groupData.name || groupId;
       
       const data = dataService.getUserData(userId);
       
@@ -541,7 +563,7 @@ class Server {
       }
       
       // Generate the group chart
-      const chartBuffer = await chartService.generateMultiKeyChart(data, metrics, `Group Chart`);
+      const chartBuffer = await chartService.generateMultiKeyChart(data, metrics, `Group: ${groupName}`);
       
       res.set('Content-Type', 'image/png');
       res.send(chartBuffer);
@@ -622,10 +644,17 @@ class Server {
     
     // Get user's groups
     const groups = this.getUserGroups(userId);
-    const groupsArray = Array.from(groups.entries()).map(([groupId, metrics]) => ({
-      groupId,
-      metrics
-    }));
+    const groupsArray = Array.from(groups.entries()).map(([groupId, groupData]) => {
+      // Support both old and new format
+      const metrics = groupData.metrics || groupData;
+      const groupName = groupData.name || groupId;
+      
+      return {
+        groupId,
+        groupName,
+        metrics: Array.isArray(metrics) ? metrics : []
+      };
+    });
     
     res.send(`
       <!DOCTYPE html>
@@ -1056,7 +1085,7 @@ class Server {
               ${groupsArray.map(group => `
                 <div class="group-item" data-group-id="${group.groupId}">
                   <div>
-                    <div class="group-name">${group.groupId}</div>
+                    <div class="group-name">${group.groupName}</div>
                     <div class="group-metrics">${group.metrics.join(', ')}</div>
                   </div>
                   <div class="group-actions">
